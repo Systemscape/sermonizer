@@ -1,21 +1,24 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
-use crossterm::{event::{self, Event, KeyCode, KeyEventKind, KeyModifiers}, terminal};
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    terminal,
+};
 use ratatui::{
-    backend::{CrosstermBackend, Backend},
+    Frame, Terminal,
+    backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame, Terminal,
 };
 use serialport::{SerialPort, SerialPortType};
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::sync::{
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
     mpsc::{self, Receiver},
-    Arc, Mutex,
 };
 use std::time::Duration;
 
@@ -51,7 +54,6 @@ impl LineEnding {
     }
 }
 
-
 /// sermonizer — a tiny, friendly serial monitor
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -67,7 +69,6 @@ struct Args {
     /// Line ending when you press Enter (none|nl|cr|crlf). Default: nl
     #[arg(long, value_enum)]
     line_ending: Option<LineEnding>,
-
 
     /// Log received bytes to this file (appends)
     #[arg(long)]
@@ -98,8 +99,8 @@ fn now_rfc3339() -> String {
 
 // Minimal, std-only timestamp (YYYY-MM-DD HH:MM:SS.mmm)
 fn chrono_like_now() -> impl std::fmt::Display {
-    use std::time::SystemTime;
     use std::fmt;
+    use std::time::SystemTime;
     struct Stamp(u128);
     impl fmt::Display for Stamp {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -129,12 +130,12 @@ fn chrono_like_now() -> impl std::fmt::Display {
         let a = z + 719468;
         let era = if a >= 0 { a } else { a - 146096 };
         let doe = a - era * 146097;
-        let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
         let y = (yoe as i32) + era as i32 * 400;
-        let doy = doe - (365*yoe + yoe/4 - yoe/100);
-        let mp = (5*doy + 2)/153;
-        let d = doy - (153*mp + 2)/5 + 1;
-        let m = mp + if mp < 10 {3} else {-9};
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = mp + if mp < 10 { 3 } else { -9 };
         let y = y + (m <= 2) as i32;
         let hour = (secs_of_day / 3600) as u32;
         let min = ((secs_of_day % 3600) / 60) as u32;
@@ -152,11 +153,11 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     // Enumerate ports up front
-    let all_ports = serialport::available_ports()
-        .context("Failed to list serial ports")?;
+    let all_ports = serialport::available_ports().context("Failed to list serial ports")?;
 
     // Filter for realistic ports (USB ports with VID/PID)
-    let ports: Vec<_> = all_ports.into_iter()
+    let ports: Vec<_> = all_ports
+        .into_iter()
         .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(_)))
         .collect();
 
@@ -195,8 +196,12 @@ fn main() -> Result<()> {
         println!("Line ending: {}", line_ending.describe());
     }
 
-    if args.hex { println!("RX view: HEX"); }
-    if args.log_ts { println!("Timestamps in logs: ON"); }
+    if args.hex {
+        println!("RX view: HEX");
+    }
+    if args.log_ts {
+        println!("Timestamps in logs: ON");
+    }
 
     // Open port
     let port = serialport::new(&port_name, baud)
@@ -244,10 +249,12 @@ fn main() -> Result<()> {
         ctrlc::set_handler(move || {
             running.store(false, Ordering::SeqCst);
             if let Ok(tx_guard) = shutdown_tx.lock()
-                && let Some(tx) = tx_guard.as_ref() {
-                    let _ = tx.send(UiMessage::Quit);
-                }
-        }).expect("Failed to set Ctrl-C handler");
+                && let Some(tx) = tx_guard.as_ref()
+            {
+                let _ = tx.send(UiMessage::Quit);
+            }
+        })
+        .expect("Failed to set Ctrl-C handler");
     }
 
     // Communication channels for UI
@@ -290,7 +297,11 @@ fn main() -> Result<()> {
                         hex_str.push_str(&format!("[{}] ", now_rfc3339()));
                     }
                     for (i, b) in bytes.iter().enumerate() {
-                        hex_str.push_str(&format!("{:02X}{}", b, if i + 1 == bytes.len() { "" } else { " " }));
+                        hex_str.push_str(&format!(
+                            "{:02X}{}",
+                            b,
+                            if i + 1 == bytes.len() { "" } else { " " }
+                        ));
                     }
                     hex_str
                 } else {
@@ -307,20 +318,26 @@ fn main() -> Result<()> {
 
                 // RX log file
                 if let Some(w) = &rx_log_writer_reader
-                    && let Ok(mut lw) = w.lock() {
-                        if log_ts {
-                            let _ = write!(lw, "[{}] ", now_rfc3339());
-                        }
-                        if hex_mode {
-                            for (i, b) in bytes.iter().enumerate() {
-                                let _ = write!(lw, "{:02X}{}", b, if i + 1 == bytes.len() { "" } else { " " });
-                            }
-                            let _ = writeln!(lw);
-                        } else {
-                            let _ = lw.write_all(bytes);
-                        }
-                        let _ = lw.flush();
+                    && let Ok(mut lw) = w.lock()
+                {
+                    if log_ts {
+                        let _ = write!(lw, "[{}] ", now_rfc3339());
                     }
+                    if hex_mode {
+                        for (i, b) in bytes.iter().enumerate() {
+                            let _ = write!(
+                                lw,
+                                "{:02X}{}",
+                                b,
+                                if i + 1 == bytes.len() { "" } else { " " }
+                            );
+                        }
+                        let _ = writeln!(lw);
+                    } else {
+                        let _ = lw.write_all(bytes);
+                    }
+                    let _ = lw.flush();
+                }
             }
         }
     });
@@ -336,9 +353,7 @@ fn main() -> Result<()> {
         &mut terminal,
         ui_rx,
         serial_rx,
-        SerialConfig {
-            port: port.clone(),
-        },
+        SerialConfig { port: port.clone() },
         UiConfig {
             running: running.clone(),
             line_ending,
@@ -377,8 +392,12 @@ fn print_ports(ports: &[serialport::SerialPortInfo]) {
                 print!("  (USB");
                 print!(" vid=0x{:04x}", info.vid);
                 print!(" pid=0x{:04x}", info.pid);
-                if let Some(m) = &info.manufacturer { print!(" {m}"); }
-                if let Some(pn) = &info.product { print!(" {pn}"); }
+                if let Some(m) = &info.manufacturer {
+                    print!(" {m}");
+                }
+                if let Some(pn) = &info.product {
+                    print!(" {pn}");
+                }
                 print!(")");
             }
             SerialPortType::BluetoothPort => print!("  (Bluetooth)"),
@@ -406,11 +425,15 @@ fn choose_port_interactive(ports: &[serialport::SerialPortInfo]) -> Result<Strin
 
             // Temporarily disable raw mode if it was on (it isn’t yet, but be safe)
             let was_raw = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
-            if was_raw { let _ = crossterm::terminal::disable_raw_mode(); }
+            if was_raw {
+                let _ = crossterm::terminal::disable_raw_mode();
+            }
 
             let mut line = String::new();
             std::io::stdin().read_line(&mut line)?;
-            if was_raw { let _ = crossterm::terminal::enable_raw_mode(); }
+            if was_raw {
+                let _ = crossterm::terminal::enable_raw_mode();
+            }
 
             let sel = line.trim().parse::<usize>().unwrap_or(1);
             let idx = sel.clamp(1, ports.len()) - 1;
@@ -468,23 +491,31 @@ impl AppState {
 
         // Update auto-scroll state to point to the new bottom (temporary: with highlight to test)
         if !self.output_lines.is_empty() {
-            self.auto_scroll_state.select(Some(self.output_lines.len() - 1));
+            self.auto_scroll_state
+                .select(Some(self.output_lines.len() - 1));
         }
     }
 
     fn scroll_up(&mut self) {
-        if self.output_lines.is_empty() { return; }
+        if self.output_lines.is_empty() {
+            return;
+        }
         // Disable auto-scroll when manually scrolling
         self.auto_scroll = false;
 
-        let selected = self.list_state.selected().unwrap_or(self.output_lines.len() - 1);
+        let selected = self
+            .list_state
+            .selected()
+            .unwrap_or(self.output_lines.len() - 1);
         if selected > 0 {
             self.list_state.select(Some(selected - 1));
         }
     }
 
     fn scroll_down(&mut self) {
-        if self.output_lines.is_empty() { return; }
+        if self.output_lines.is_empty() {
+            return;
+        }
         // Disable auto-scroll when manually scrolling
         self.auto_scroll = false;
 
@@ -561,7 +592,10 @@ fn run_ui<B: Backend>(
             match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => {
                     match k.code {
-                        KeyCode::Char(c) if k.modifiers.contains(KeyModifiers::CONTROL) && (c == 'c' || c == 'd') => {
+                        KeyCode::Char(c)
+                            if k.modifiers.contains(KeyModifiers::CONTROL)
+                                && (c == 'c' || c == 'd') =>
+                        {
                             app_state.should_quit = true;
                             break;
                         }
@@ -580,11 +614,14 @@ fn run_ui<B: Backend>(
                             if !app_state.input_line.is_empty() {
                                 write_bytes(&serial_config.port, app_state.input_line.as_bytes())?;
                                 if let Some(w) = &ui_config.tx_log
-                                    && let Ok(mut lw) = w.lock() {
-                                        if ui_config.log_ts { let _ = write!(lw, "[{}] ", now_rfc3339()); }
-                                        let _ = lw.write_all(app_state.input_line.as_bytes());
-                                        let _ = lw.flush();
+                                    && let Ok(mut lw) = w.lock()
+                                {
+                                    if ui_config.log_ts {
+                                        let _ = write!(lw, "[{}] ", now_rfc3339());
                                     }
+                                    let _ = lw.write_all(app_state.input_line.as_bytes());
+                                    let _ = lw.flush();
+                                }
                             }
 
                             // Send line ending
@@ -592,11 +629,14 @@ fn run_ui<B: Backend>(
                             if !end.is_empty() {
                                 write_bytes(&serial_config.port, end)?;
                                 if let Some(w) = &ui_config.tx_log
-                                    && let Ok(mut lw) = w.lock() {
-                                        if ui_config.log_ts && app_state.input_line.is_empty() { let _ = write!(lw, "[{}] ", now_rfc3339()); }
-                                        let _ = lw.write_all(end);
-                                        let _ = lw.flush();
+                                    && let Ok(mut lw) = w.lock()
+                                {
+                                    if ui_config.log_ts && app_state.input_line.is_empty() {
+                                        let _ = write!(lw, "[{}] ", now_rfc3339());
                                     }
+                                    let _ = lw.write_all(end);
+                                    let _ = lw.flush();
+                                }
                             }
 
                             // Clear input for next line
@@ -614,7 +654,10 @@ fn run_ui<B: Backend>(
                         KeyCode::PageUp => {
                             // Disable auto-scroll and scroll up by 10 lines
                             app_state.auto_scroll = false;
-                            let current = app_state.list_state.selected().unwrap_or(app_state.output_lines.len().saturating_sub(1));
+                            let current = app_state
+                                .list_state
+                                .selected()
+                                .unwrap_or(app_state.output_lines.len().saturating_sub(1));
                             let new_selected = current.saturating_sub(10);
                             if !app_state.output_lines.is_empty() {
                                 app_state.list_state.select(Some(new_selected));
@@ -624,7 +667,8 @@ fn run_ui<B: Backend>(
                             // Disable auto-scroll and scroll down by 10 lines
                             app_state.auto_scroll = false;
                             let current = app_state.list_state.selected().unwrap_or(0);
-                            let new_selected = (current + 10).min(app_state.output_lines.len().saturating_sub(1));
+                            let new_selected =
+                                (current + 10).min(app_state.output_lines.len().saturating_sub(1));
                             if !app_state.output_lines.is_empty() {
                                 app_state.list_state.select(Some(new_selected));
                             }
@@ -654,8 +698,8 @@ fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(1),      // Output area (takes most space)
-            Constraint::Length(3),   // Input area (fixed height)
+            Constraint::Min(1),    // Output area (takes most space)
+            Constraint::Length(3), // Input area (fixed height)
         ])
         .split(f.area());
 
@@ -673,11 +717,7 @@ fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     };
 
     let output_list = List::new(output_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title)
-        )
+        .block(Block::default().borders(Borders::ALL).title(title))
         .style(Style::default().fg(Color::White))
         .highlight_style(Style::default().fg(Color::Black).bg(Color::White));
 
@@ -695,7 +735,7 @@ fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Input (Press Enter to send, Ctrl+C or Esc to exit)")
+                .title("Input (Press Enter to send, Ctrl+C or Esc to exit)"),
         )
         .style(Style::default().fg(Color::Yellow));
 
