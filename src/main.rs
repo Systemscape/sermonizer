@@ -19,8 +19,8 @@ use std::sync::{
     Arc, Mutex as StdMutex,
     atomic::{AtomicBool, Ordering},
 };
-use tokio::sync::{Mutex, mpsc};
 use std::time::Duration;
+use tokio::sync::{Mutex, mpsc};
 
 /// Which line ending to send when you press Enter
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -249,7 +249,8 @@ async fn main() -> Result<()> {
 
     // Handle Ctrl-C with immediate shutdown
     let running = Arc::new(AtomicBool::new(true));
-    let shutdown_tx: Arc<StdMutex<Option<mpsc::UnboundedSender<UiMessage>>>> = Arc::new(StdMutex::new(None));
+    let shutdown_tx: Arc<StdMutex<Option<mpsc::UnboundedSender<UiMessage>>>> =
+        Arc::new(StdMutex::new(None));
     {
         let running = running.clone();
         let shutdown_tx = shutdown_tx.clone();
@@ -367,7 +368,8 @@ async fn main() -> Result<()> {
             tx_log: tx_log_writer.clone(),
             log_ts: args.log_ts,
         },
-    ).await;
+    )
+    .await;
 
     // Cleanup terminal
     terminal::disable_raw_mode()?;
@@ -487,13 +489,15 @@ impl AppState {
     fn add_output(&mut self, data: String) {
         // Append to partial line buffer
         self.partial_line.push_str(&data);
-        
+
         // Check if we have complete lines (ending with \n or \r\n)
         while let Some(newline_pos) = self.partial_line.find('\n') {
             // Extract complete line (without the newline)
-            let complete_line = self.partial_line[..newline_pos].trim_end_matches('\r').to_string();
+            let complete_line = self.partial_line[..newline_pos]
+                .trim_end_matches('\r')
+                .to_string();
             self.output_lines.push(complete_line);
-            
+
             // Remove processed part from partial_line
             self.partial_line.drain(..=newline_pos);
         }
@@ -774,7 +778,10 @@ fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     ));
 }
 
-async fn write_bytes_async(port: &Arc<Mutex<Box<dyn SerialPort + Send>>>, bytes: &[u8]) -> Result<()> {
+async fn write_bytes_async(
+    port: &Arc<Mutex<Box<dyn SerialPort + Send>>>,
+    bytes: &[u8],
+) -> Result<()> {
     let mut guard = port.lock().await;
     guard.write_all(bytes)?;
     guard.flush()?;
