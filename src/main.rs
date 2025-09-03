@@ -51,13 +51,6 @@ impl LineEnding {
     }
 }
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
-enum NewlineMode {
-    /// Send complete lines on Enter (Arduino Serial Monitor style)
-    Onenter,
-    /// Legacy mode: Send on Enter AND echo locally (so cursor moves)
-    Ontype,
-}
 
 /// sermonizer — a tiny, friendly serial monitor
 #[derive(Parser, Debug)]
@@ -75,13 +68,6 @@ struct Args {
     #[arg(long, value_enum)]
     line_ending: Option<LineEnding>,
 
-    /// How Enter behaves (onenter|ontype). Default: onenter
-    #[arg(long, value_enum)]
-    newline_mode: Option<NewlineMode>,
-
-    /// Echo typed characters locally (TX)
-    #[arg(long, default_value_t = true)]
-    echo: bool,
 
     /// Log received bytes to this file (appends)
     #[arg(long)]
@@ -201,23 +187,14 @@ fn main() -> Result<()> {
         }
     };
 
-    // Line ending + mode
+    // Line ending
     let line_ending = args.line_ending.unwrap_or(LineEnding::Nl);
     if args.line_ending.is_none() {
         println!("Line ending: {} (default)", line_ending.describe());
     } else {
         println!("Line ending: {}", line_ending.describe());
     }
-    let newline_mode = args.newline_mode.unwrap_or(NewlineMode::Onenter);
-    println!(
-        "Newline mode: {}",
-        match newline_mode {
-            NewlineMode::Onenter => "onenter (build lines locally, send complete lines on Enter)",
-            NewlineMode::Ontype => "ontype (legacy mode - send on Enter and echo locally)",
-        }
-    );
 
-    if args.echo { println!("Local echo: ON"); }
     if args.hex { println!("RX view: HEX"); }
     if args.log_ts { println!("Timestamps in logs: ON"); }
 
@@ -364,7 +341,6 @@ fn main() -> Result<()> {
         port.clone(),
         running.clone(),
         line_ending,
-        args.echo,
         tx_log_writer.clone(),
         args.log_ts,
     );
@@ -545,7 +521,6 @@ fn run_ui<B: Backend>(
     port: Arc<Mutex<Box<dyn SerialPort + Send>>>,
     running: Arc<AtomicBool>,
     line_ending: LineEnding,
-    _echo: bool,
     tx_log: Option<Arc<Mutex<BufWriter<std::fs::File>>>>,
     log_ts: bool,
 ) -> Result<()> {
