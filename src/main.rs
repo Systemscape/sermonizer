@@ -127,7 +127,7 @@ fn chrono_like_now() -> impl std::fmt::Display {
         let z = s.div_euclid(SECS_PER_DAY);
         let secs_of_day = s.rem_euclid(SECS_PER_DAY);
         let a = z + 719468;
-        let era = (if a >= 0 { a } else { a - 146096 });
+        let era = if a >= 0 { a } else { a - 146096 };
         let doe = a - era * 146097;
         let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
         let y = (yoe as i32) + era as i32 * 400;
@@ -336,11 +336,15 @@ fn main() -> Result<()> {
         &mut terminal,
         ui_rx,
         serial_rx,
-        port.clone(),
-        running.clone(),
-        line_ending,
-        tx_log_writer.clone(),
-        args.log_ts,
+        SerialConfig {
+            port: port.clone(),
+        },
+        UiConfig {
+            running: running.clone(),
+            line_ending,
+            tx_log: tx_log_writer.clone(),
+            log_ts: args.log_ts,
+        },
     );
 
     // Cleanup terminal
@@ -512,19 +516,27 @@ impl AppState {
     }
 }
 
-fn run_ui<B: Backend>(
-    terminal: &mut Terminal<B>,
-    ui_rx: Receiver<UiMessage>,
-    serial_rx: Receiver<SerialData>,
+struct SerialConfig {
     port: Arc<Mutex<Box<dyn SerialPort + Send>>>,
+}
+
+struct UiConfig {
     running: Arc<AtomicBool>,
     line_ending: LineEnding,
     tx_log: Option<Arc<Mutex<BufWriter<std::fs::File>>>>,
     log_ts: bool,
+}
+
+fn run_ui<B: Backend>(
+    terminal: &mut Terminal<B>,
+    ui_rx: Receiver<UiMessage>,
+    serial_rx: Receiver<SerialData>,
+    serial_config: SerialConfig,
+    ui_config: UiConfig,
 ) -> Result<()> {
     let mut app_state = AppState::new();
 
-    while running.load(Ordering::SeqCst) && !app_state.should_quit {
+    while ui_config.running.load(Ordering::SeqCst) && !app_state.should_quit {
         // Check for UI messages (like quit from Ctrl-C)
         if let Ok(msg) = ui_rx.try_recv() {
             match msg {
@@ -566,22 +578,22 @@ fn run_ui<B: Backend>(
                         KeyCode::Enter => {
                             // Send the complete line to serial port
                             if !app_state.input_line.is_empty() {
-                                write_bytes(&port, app_state.input_line.as_bytes())?;
-                                if let Some(w) = &tx_log
+                                write_bytes(&serial_config.port, app_state.input_line.as_bytes())?;
+                                if let Some(w) = &ui_config.tx_log
                                     && let Ok(mut lw) = w.lock() {
-                                        if log_ts { let _ = write!(lw, "[{}] ", now_rfc3339()); }
+                                        if ui_config.log_ts { let _ = write!(lw, "[{}] ", now_rfc3339()); }
                                         let _ = lw.write_all(app_state.input_line.as_bytes());
                                         let _ = lw.flush();
                                     }
                             }
 
                             // Send line ending
-                            let end = line_ending.bytes();
+                            let end = ui_config.line_ending.bytes();
                             if !end.is_empty() {
-                                write_bytes(&port, end)?;
-                                if let Some(w) = &tx_log
+                                write_bytes(&serial_config.port, end)?;
+                                if let Some(w) = &ui_config.tx_log
                                     && let Ok(mut lw) = w.lock() {
-                                        if log_ts && app_state.input_line.is_empty() { let _ = write!(lw, "[{}] ", now_rfc3339()); }
+                                        if ui_config.log_ts && app_state.input_line.is_empty() { let _ = write!(lw, "[{}] ", now_rfc3339()); }
                                         let _ = lw.write_all(end);
                                         let _ = lw.flush();
                                     }
@@ -634,7 +646,7 @@ fn run_ui<B: Backend>(
         terminal.draw(|f| draw_ui(f, &mut app_state))?;
     }
 
-    running.store(false, Ordering::SeqCst);
+    ui_config.running.store(false, Ordering::SeqCst);
     Ok(())
 }
 
