@@ -322,8 +322,8 @@ async fn main() -> Result<()> {
                 let _ = serial_tx_clone.send(SerialData::Received(display_text));
 
                 // RX log file
-                if let Some(w) = &rx_log_writer_reader {
-                    if let Ok(mut lw) = w.lock() {
+                if let Some(w) = &rx_log_writer_reader
+                    && let Ok(mut lw) = w.lock() {
                         if log_ts {
                             let _ = write!(lw, "[{}] ", now_rfc3339());
                         }
@@ -342,7 +342,6 @@ async fn main() -> Result<()> {
                         }
                         let _ = lw.flush();
                     }
-                }
             } else {
                 // Small async yield to prevent busy waiting
                 tokio::task::yield_now().await;
@@ -616,11 +615,11 @@ async fn run_ui<B: Backend>(
                     event::read()
                 } else {
                     tokio::time::sleep(Duration::from_millis(1)).await;
-                    return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "no input"));
+                    Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "no input"))
                 }
             } => {
-                if let Ok(Event::Key(k)) = key_result {
-                    if k.kind == KeyEventKind::Press {
+                if let Ok(Event::Key(k)) = key_result
+                    && k.kind == KeyEventKind::Press {
                     match k.code {
                         KeyCode::Char(c)
                             if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -712,7 +711,6 @@ async fn run_ui<B: Backend>(
                         _ => {}
                     }
                     }
-                }
             }
         }
 
