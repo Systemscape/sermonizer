@@ -1,13 +1,20 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
-use crossterm::{event, terminal};
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::{event::{self, Event, KeyCode, KeyEventKind, KeyModifiers}, terminal};
+use ratatui::{
+    backend::{CrosstermBackend, Backend},
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Style},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
+    Frame, Terminal,
+};
 use serialport::{SerialPort, SerialPortType};
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
+    mpsc::{self, Receiver},
     Arc, Mutex,
 };
 use std::time::Duration;
@@ -251,14 +258,28 @@ fn main() -> Result<()> {
         None => None,
     };
 
-    // Handle Ctrl-C
+    // Handle Ctrl-C with immediate shutdown
     let running = Arc::new(AtomicBool::new(true));
+    let shutdown_tx: Arc<Mutex<Option<mpsc::Sender<UiMessage>>>> = Arc::new(Mutex::new(None));
     {
         let running = running.clone();
+        let shutdown_tx = shutdown_tx.clone();
         ctrlc::set_handler(move || {
             running.store(false, Ordering::SeqCst);
+            if let Ok(tx_guard) = shutdown_tx.lock() {
+                if let Some(tx) = tx_guard.as_ref() {
+                    let _ = tx.send(UiMessage::Quit);
+                }
+            }
         }).expect("Failed to set Ctrl-C handler");
     }
+
+    // Communication channels for UI
+    let (ui_tx, ui_rx) = mpsc::channel::<UiMessage>();
+    let (serial_tx, serial_rx) = mpsc::channel::<SerialData>();
+    
+    // Store UI sender for Ctrl-C handler
+    *shutdown_tx.lock().unwrap() = Some(ui_tx.clone());
 
     // Spawn reader thread (RX)
     let port_reader = port.clone();
@@ -266,9 +287,9 @@ fn main() -> Result<()> {
     let rx_log_writer_reader = rx_log_writer.clone();
     let hex_mode = args.hex;
     let log_ts = args.log_ts;
+    let serial_tx_clone = serial_tx.clone();
     let reader = std::thread::spawn(move || {
         let mut buf = [0u8; 1024];
-        let mut stdout = std::io::stdout();
 
         while running_reader.load(Ordering::SeqCst) {
             let n = {
@@ -285,22 +306,28 @@ fn main() -> Result<()> {
 
             if n > 0 {
                 let bytes = &buf[..n];
-
-                // Terminal output
-                if hex_mode {
-                    // Timestamp prefix once per chunk
+                
+                // Format the data
+                let display_text = if hex_mode {
+                    let mut hex_str = String::new();
                     if log_ts {
-                        let _ = write!(stdout, "[{}] ", now_rfc3339());
+                        hex_str.push_str(&format!("[{}] ", now_rfc3339()));
                     }
                     for (i, b) in bytes.iter().enumerate() {
-                        let _ = write!(stdout, "{:02X}{}", b, if i + 1 == bytes.len() { "" } else { " " });
+                        hex_str.push_str(&format!("{:02X}{}", b, if i + 1 == bytes.len() { "" } else { " " }));
                     }
-                    let _ = writeln!(stdout);
-                    let _ = stdout.flush();
+                    hex_str
                 } else {
-                    let _ = stdout.write_all(bytes);
-                    let _ = stdout.flush();
-                }
+                    let mut text = String::new();
+                    if log_ts {
+                        text.push_str(&format!("[{}] ", now_rfc3339()));
+                    }
+                    text.push_str(&String::from_utf8_lossy(bytes));
+                    text
+                };
+
+                // Send to UI
+                let _ = serial_tx_clone.send(SerialData::Received(display_text));
 
                 // RX log file
                 if let Some(w) = &rx_log_writer_reader {
@@ -323,24 +350,35 @@ fn main() -> Result<()> {
         }
     });
 
-    // Enter raw mode to capture keys immediately
+    // Setup terminal for ratatui
     terminal::enable_raw_mode().context("Failed to enable raw mode")?;
-    let writer_res = run_key_loop(
+    let mut stdout = std::io::stdout();
+    crossterm::execute!(stdout, terminal::EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    
+    let ui_res = run_ui(
+        &mut terminal,
+        ui_rx,
+        serial_rx,
         port.clone(),
         running.clone(),
         line_ending,
-        newline_mode,
         args.echo,
         tx_log_writer.clone(),
         args.log_ts,
     );
-    let _ = terminal::disable_raw_mode();
+    
+    // Cleanup terminal
+    terminal::disable_raw_mode()?;
+    crossterm::execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
 
     // Ensure we stop and join reader
     running.store(false, Ordering::SeqCst);
     let _ = reader.join();
 
-    if let Err(e) = writer_res {
+    if let Err(e) = ui_res {
         eprintln!("\nError: {e:?}");
     }
 
@@ -405,44 +443,96 @@ fn choose_port_interactive(ports: &[serialport::SerialPortInfo]) -> Result<Strin
     }
 }
 
-fn run_key_loop(
+#[derive(Debug)]
+enum UiMessage {
+    Quit,
+}
+
+#[derive(Debug, Clone)]
+enum SerialData {
+    Received(String),
+}
+
+struct AppState {
+    input_line: String,
+    output_lines: Vec<String>,
+    should_quit: bool,
+}
+
+impl AppState {
+    fn new() -> Self {
+        Self {
+            input_line: String::new(),
+            output_lines: Vec::new(),
+            should_quit: false,
+        }
+    }
+    
+    fn add_output(&mut self, line: String) {
+        self.output_lines.push(line);
+        // Keep only the last 1000 lines to prevent memory issues
+        if self.output_lines.len() > 1000 {
+            self.output_lines.drain(..self.output_lines.len() - 1000);
+        }
+    }
+}
+
+fn run_ui<B: Backend>(
+    terminal: &mut Terminal<B>,
+    ui_rx: Receiver<UiMessage>,
+    serial_rx: Receiver<SerialData>,
     port: Arc<Mutex<Box<dyn SerialPort + Send>>>,
     running: Arc<AtomicBool>,
     line_ending: LineEnding,
-    _newline_mode: NewlineMode,
-    echo: bool,
+    _echo: bool,
     tx_log: Option<Arc<Mutex<BufWriter<std::fs::File>>>>,
     log_ts: bool,
 ) -> Result<()> {
-    let mut stdout = std::io::stdout();
-    let mut line_buffer = String::new();
+    let mut app_state = AppState::new();
 
-    // Key event loop — build lines locally, send on Enter like Arduino Serial Monitor
-    while running.load(Ordering::SeqCst) {
-        if event::poll(Duration::from_millis(50))? {
+    while running.load(Ordering::SeqCst) && !app_state.should_quit {
+        // Check for UI messages (like quit from Ctrl-C)
+        if let Ok(msg) = ui_rx.try_recv() {
+            match msg {
+                UiMessage::Quit => {
+                    app_state.should_quit = true;
+                    break;
+                }
+            }
+        }
+
+        // Check for serial data
+        if let Ok(data) = serial_rx.try_recv() {
+            match data {
+                SerialData::Received(line) => {
+                    app_state.add_output(line);
+                }
+            }
+        }
+
+        // Handle keyboard input
+        if event::poll(Duration::from_millis(16))? {
             match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => {
                     match k.code {
-                        KeyCode::Char(c) if k.modifiers.contains(KeyModifiers::CONTROL) && (c == 'c' || c == 'd' || c == 'z') => {
-                            // Handle Ctrl+C, Ctrl+D, Ctrl+Z
-                            running.store(false, Ordering::SeqCst);
+                        KeyCode::Char(c) if k.modifiers.contains(KeyModifiers::CONTROL) && (c == 'c' || c == 'd') => {
+                            app_state.should_quit = true;
                             break;
                         }
+                        KeyCode::Esc => {
+                            app_state.should_quit = true;
+                        }
                         KeyCode::Char(c) => {
-                            line_buffer.push(c);
-                            if echo {
-                                let _ = write!(stdout, "{}", c);
-                                let _ = stdout.flush();
-                            }
+                            app_state.input_line.push(c);
                         }
                         KeyCode::Enter => {
                             // Send the complete line to serial port
-                            if !line_buffer.is_empty() {
-                                write_bytes(&port, line_buffer.as_bytes())?;
+                            if !app_state.input_line.is_empty() {
+                                write_bytes(&port, app_state.input_line.as_bytes())?;
                                 if let Some(w) = &tx_log {
                                     if let Ok(mut lw) = w.lock() {
                                         if log_ts { let _ = write!(lw, "[{}] ", now_rfc3339()); }
-                                        let _ = lw.write_all(line_buffer.as_bytes());
+                                        let _ = lw.write_all(app_state.input_line.as_bytes());
                                         let _ = lw.flush();
                                     }
                                 }
@@ -454,34 +544,18 @@ fn run_key_loop(
                                 write_bytes(&port, end)?;
                                 if let Some(w) = &tx_log {
                                     if let Ok(mut lw) = w.lock() {
-                                        if log_ts && line_buffer.is_empty() { let _ = write!(lw, "[{}] ", now_rfc3339()); }
+                                        if log_ts && app_state.input_line.is_empty() { let _ = write!(lw, "[{}] ", now_rfc3339()); }
                                         let _ = lw.write_all(end);
                                         let _ = lw.flush();
                                     }
                                 }
                             }
                             
-                            // Local echo newline
-                            if echo {
-                                let _ = writeln!(stdout);
-                                let _ = stdout.flush();
-                            }
-                            
-                            // Clear buffer for next line
-                            line_buffer.clear();
+                            // Clear input for next line
+                            app_state.input_line.clear();
                         }
                         KeyCode::Backspace => {
-                            if !line_buffer.is_empty() {
-                                line_buffer.pop();
-                                if echo {
-                                    let _ = write!(stdout, "\x08 \x08");
-                                    let _ = stdout.flush();
-                                }
-                            }
-                        }
-                        KeyCode::Esc => {
-                            // Optional: allow ESC to exit quickly
-                            running.store(false, Ordering::SeqCst);
+                            app_state.input_line.pop();
                         }
                         _ => {}
                     }
@@ -489,8 +563,57 @@ fn run_key_loop(
                 _ => {}
             }
         }
+
+        // Render the UI
+        terminal.draw(|f| draw_ui(f, &app_state))?;
     }
+    
+    running.store(false, Ordering::SeqCst);
     Ok(())
+}
+
+fn draw_ui(f: &mut Frame, app_state: &AppState) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),      // Output area (takes most space)
+            Constraint::Length(3),   // Input area (fixed height)
+        ])
+        .split(f.area());
+
+    // Serial monitor output
+    let output_items: Vec<ListItem> = app_state
+        .output_lines
+        .iter()
+        .map(|line| ListItem::new(line.as_str()))
+        .collect();
+    
+    let output_list = List::new(output_items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Serial Monitor")
+        )
+        .style(Style::default().fg(Color::White));
+    
+    f.render_widget(output_list, chunks[0]);
+    
+    // Input line
+    let input_paragraph = Paragraph::new(app_state.input_line.as_str())
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Input (Press Enter to send, Ctrl+C or Esc to exit)")
+        )
+        .style(Style::default().fg(Color::Yellow));
+    
+    f.render_widget(input_paragraph, chunks[1]);
+    
+    // Set cursor position in input field
+    f.set_cursor_position((
+        chunks[1].x + app_state.input_line.len() as u16 + 1,
+        chunks[1].y + 1,
+    ));
 }
 
 fn write_bytes(port: &Arc<Mutex<Box<dyn SerialPort + Send>>>, bytes: &[u8]) -> Result<()> {
