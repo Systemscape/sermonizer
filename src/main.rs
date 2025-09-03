@@ -127,7 +127,7 @@ fn chrono_like_now() -> impl std::fmt::Display {
         let z = s.div_euclid(SECS_PER_DAY);
         let secs_of_day = s.rem_euclid(SECS_PER_DAY);
         let a = z + 719468;
-        let era = (a >= 0).then_some(a).unwrap_or(a - 146096) / 146097;
+        let era = (if a >= 0 { a } else { a - 146096 });
         let doe = a - era * 146097;
         let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
         let y = (yoe as i32) + era as i32 * 400;
@@ -154,7 +154,7 @@ fn main() -> Result<()> {
     // Enumerate ports up front
     let all_ports = serialport::available_ports()
         .context("Failed to list serial ports")?;
-    
+
     // Filter for realistic ports (USB ports with VID/PID)
     let ports: Vec<_> = all_ports.into_iter()
         .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(_)))
@@ -243,18 +243,17 @@ fn main() -> Result<()> {
         let shutdown_tx = shutdown_tx.clone();
         ctrlc::set_handler(move || {
             running.store(false, Ordering::SeqCst);
-            if let Ok(tx_guard) = shutdown_tx.lock() {
-                if let Some(tx) = tx_guard.as_ref() {
+            if let Ok(tx_guard) = shutdown_tx.lock()
+                && let Some(tx) = tx_guard.as_ref() {
                     let _ = tx.send(UiMessage::Quit);
                 }
-            }
         }).expect("Failed to set Ctrl-C handler");
     }
 
     // Communication channels for UI
     let (ui_tx, ui_rx) = mpsc::channel::<UiMessage>();
     let (serial_tx, serial_rx) = mpsc::channel::<SerialData>();
-    
+
     // Store UI sender for Ctrl-C handler
     *shutdown_tx.lock().unwrap() = Some(ui_tx.clone());
 
@@ -283,7 +282,7 @@ fn main() -> Result<()> {
 
             if n > 0 {
                 let bytes = &buf[..n];
-                
+
                 // Format the data
                 let display_text = if hex_mode {
                     let mut hex_str = String::new();
@@ -307,8 +306,8 @@ fn main() -> Result<()> {
                 let _ = serial_tx_clone.send(SerialData::Received(display_text));
 
                 // RX log file
-                if let Some(w) = &rx_log_writer_reader {
-                    if let Ok(mut lw) = w.lock() {
+                if let Some(w) = &rx_log_writer_reader
+                    && let Ok(mut lw) = w.lock() {
                         if log_ts {
                             let _ = write!(lw, "[{}] ", now_rfc3339());
                         }
@@ -322,7 +321,6 @@ fn main() -> Result<()> {
                         }
                         let _ = lw.flush();
                     }
-                }
             }
         }
     });
@@ -333,7 +331,7 @@ fn main() -> Result<()> {
     crossterm::execute!(stdout, terminal::EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    
+
     let ui_res = run_ui(
         &mut terminal,
         ui_rx,
@@ -344,7 +342,7 @@ fn main() -> Result<()> {
         tx_log_writer.clone(),
         args.log_ts,
     );
-    
+
     // Cleanup terminal
     terminal::disable_raw_mode()?;
     crossterm::execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
@@ -449,49 +447,49 @@ impl AppState {
             auto_scroll: true,
         }
     }
-    
+
     fn add_output(&mut self, data: String) {
         // Split multi-line data into individual lines for proper scrolling
         for line in data.lines() {
             self.output_lines.push(line.to_string());
         }
-        
+
         // If the data didn't end with a newline, the last "line" might be incomplete
         // But for serial output, we'll treat each chunk as complete
-        
+
         // Keep only the last 1000 lines to prevent memory issues
         if self.output_lines.len() > 1000 {
             self.output_lines.drain(..self.output_lines.len() - 1000);
         }
-        
+
         // Update auto-scroll state to point to the new bottom (temporary: with highlight to test)
         if !self.output_lines.is_empty() {
             self.auto_scroll_state.select(Some(self.output_lines.len() - 1));
         }
     }
-    
+
     fn scroll_up(&mut self) {
         if self.output_lines.is_empty() { return; }
         // Disable auto-scroll when manually scrolling
         self.auto_scroll = false;
-        
+
         let selected = self.list_state.selected().unwrap_or(self.output_lines.len() - 1);
         if selected > 0 {
             self.list_state.select(Some(selected - 1));
         }
     }
-    
+
     fn scroll_down(&mut self) {
         if self.output_lines.is_empty() { return; }
         // Disable auto-scroll when manually scrolling
         self.auto_scroll = false;
-        
+
         let selected = self.list_state.selected().unwrap_or(0);
         if selected < self.output_lines.len() - 1 {
             self.list_state.select(Some(selected + 1));
         }
     }
-    
+
     fn scroll_to_bottom(&mut self) {
         if !self.output_lines.is_empty() {
             // Disable auto-scroll when manually scrolling to bottom
@@ -499,12 +497,12 @@ impl AppState {
             self.list_state.select(Some(self.output_lines.len() - 1));
         }
     }
-    
+
     fn enable_auto_scroll(&mut self) {
         self.auto_scroll = true;
         self.list_state.select(None); // Clear selection when re-enabling auto-scroll
     }
-    
+
     fn scroll_to_home(&mut self) {
         if !self.output_lines.is_empty() {
             // Disable auto-scroll when manually scrolling to top
@@ -569,28 +567,26 @@ fn run_ui<B: Backend>(
                             // Send the complete line to serial port
                             if !app_state.input_line.is_empty() {
                                 write_bytes(&port, app_state.input_line.as_bytes())?;
-                                if let Some(w) = &tx_log {
-                                    if let Ok(mut lw) = w.lock() {
+                                if let Some(w) = &tx_log
+                                    && let Ok(mut lw) = w.lock() {
                                         if log_ts { let _ = write!(lw, "[{}] ", now_rfc3339()); }
                                         let _ = lw.write_all(app_state.input_line.as_bytes());
                                         let _ = lw.flush();
                                     }
-                                }
                             }
-                            
+
                             // Send line ending
                             let end = line_ending.bytes();
                             if !end.is_empty() {
                                 write_bytes(&port, end)?;
-                                if let Some(w) = &tx_log {
-                                    if let Ok(mut lw) = w.lock() {
+                                if let Some(w) = &tx_log
+                                    && let Ok(mut lw) = w.lock() {
                                         if log_ts && app_state.input_line.is_empty() { let _ = write!(lw, "[{}] ", now_rfc3339()); }
                                         let _ = lw.write_all(end);
                                         let _ = lw.flush();
                                     }
-                                }
                             }
-                            
+
                             // Clear input for next line
                             app_state.input_line.clear();
                         }
@@ -637,7 +633,7 @@ fn run_ui<B: Backend>(
         // Render the UI
         terminal.draw(|f| draw_ui(f, &mut app_state))?;
     }
-    
+
     running.store(false, Ordering::SeqCst);
     Ok(())
 }
@@ -657,13 +653,13 @@ fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
         .iter()
         .map(|line| ListItem::new(line.as_str()))
         .collect();
-    
+
     let title = if app_state.auto_scroll {
         "Serial Monitor (Auto-scroll ON - ↑↓/PgUp/PgDn to scroll, Ctrl+A to re-enable auto-scroll)"
     } else {
         "Serial Monitor (Auto-scroll OFF - ↑↓/PgUp/PgDn to scroll, Ctrl+A to re-enable auto-scroll)"
     };
-    
+
     let output_list = List::new(output_items)
         .block(
             Block::default()
@@ -672,16 +668,16 @@ fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
         )
         .style(Style::default().fg(Color::White))
         .highlight_style(Style::default().fg(Color::Black).bg(Color::White));
-    
+
     // Handle auto-scrolling vs manual scrolling
     if app_state.auto_scroll {
         // Use the persistent auto-scroll state that stays positioned at bottom
         f.render_stateful_widget(output_list, chunks[0], &mut app_state.auto_scroll_state);
     } else {
-        // Manual scrolling mode - use the user's scroll position  
+        // Manual scrolling mode - use the user's scroll position
         f.render_stateful_widget(output_list, chunks[0], &mut app_state.list_state);
     }
-    
+
     // Input line
     let input_paragraph = Paragraph::new(app_state.input_line.as_str())
         .block(
@@ -690,9 +686,9 @@ fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
                 .title("Input (Press Enter to send, Ctrl+C or Esc to exit)")
         )
         .style(Style::default().fg(Color::Yellow));
-    
+
     f.render_widget(input_paragraph, chunks[1]);
-    
+
     // Set cursor position in input field
     f.set_cursor_position((
         chunks[1].x + app_state.input_line.len() as u16 + 1,
