@@ -16,10 +16,10 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex as StdMutex,
     atomic::{AtomicBool, Ordering},
-    mpsc::{self, Receiver},
 };
+use tokio::sync::{Mutex, mpsc};
 use std::time::Duration;
 
 /// Which line ending to send when you press Enter
@@ -149,7 +149,8 @@ fn chrono_like_now() -> impl std::fmt::Display {
     Stamp(ms)
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Enumerate ports up front
@@ -204,10 +205,16 @@ fn main() -> Result<()> {
     }
 
     // Open port
-    let port = serialport::new(&port_name, baud)
-        .timeout(Duration::from_millis(10))
+    let mut port = serialport::new(&port_name, baud)
+        .timeout(Duration::from_millis(100))
         .open()
         .with_context(|| format!("Failed to open serial port '{port_name}'"))?;
+
+    // Clear any stale data from the serial buffer
+    let mut discard_buf = [0u8; 1024];
+    while port.read(&mut discard_buf).is_ok() {
+        // Keep reading until timeout to flush buffer
+    }
 
     println!("Connected. Type to send; press Ctrl-C to exit.\n");
 
@@ -215,7 +222,7 @@ fn main() -> Result<()> {
     let port: Arc<Mutex<Box<dyn SerialPort + Send>>> = Arc::new(Mutex::new(port));
 
     // Optional log files
-    let rx_log_writer: Option<Arc<Mutex<BufWriter<std::fs::File>>>> = match &args.log {
+    let rx_log_writer: Option<Arc<StdMutex<BufWriter<std::fs::File>>>> = match &args.log {
         Some(path) => {
             let file = OpenOptions::new()
                 .create(true)
@@ -223,11 +230,11 @@ fn main() -> Result<()> {
                 .open(path)
                 .with_context(|| format!("Failed to open log file: {}", path.display()))?;
             println!("Logging RX to: {}", path.display());
-            Some(Arc::new(Mutex::new(BufWriter::new(file))))
+            Some(Arc::new(StdMutex::new(BufWriter::new(file))))
         }
         None => None,
     };
-    let tx_log_writer: Option<Arc<Mutex<BufWriter<std::fs::File>>>> = match &args.tx_log {
+    let tx_log_writer: Option<Arc<StdMutex<BufWriter<std::fs::File>>>> = match &args.tx_log {
         Some(path) => {
             let file = OpenOptions::new()
                 .create(true)
@@ -235,14 +242,14 @@ fn main() -> Result<()> {
                 .open(path)
                 .with_context(|| format!("Failed to open tx-log file: {}", path.display()))?;
             println!("Logging TX to: {}", path.display());
-            Some(Arc::new(Mutex::new(BufWriter::new(file))))
+            Some(Arc::new(StdMutex::new(BufWriter::new(file))))
         }
         None => None,
     };
 
     // Handle Ctrl-C with immediate shutdown
     let running = Arc::new(AtomicBool::new(true));
-    let shutdown_tx: Arc<Mutex<Option<mpsc::Sender<UiMessage>>>> = Arc::new(Mutex::new(None));
+    let shutdown_tx: Arc<StdMutex<Option<mpsc::UnboundedSender<UiMessage>>>> = Arc::new(StdMutex::new(None));
     {
         let running = running.clone();
         let shutdown_tx = shutdown_tx.clone();
@@ -258,8 +265,8 @@ fn main() -> Result<()> {
     }
 
     // Communication channels for UI
-    let (ui_tx, ui_rx) = mpsc::channel::<UiMessage>();
-    let (serial_tx, serial_rx) = mpsc::channel::<SerialData>();
+    let (ui_tx, ui_rx) = mpsc::unbounded_channel::<UiMessage>();
+    let (serial_tx, serial_rx) = mpsc::unbounded_channel::<SerialData>();
 
     // Store UI sender for Ctrl-C handler
     *shutdown_tx.lock().unwrap() = Some(ui_tx.clone());
@@ -271,15 +278,12 @@ fn main() -> Result<()> {
     let hex_mode = args.hex;
     let log_ts = args.log_ts;
     let serial_tx_clone = serial_tx.clone();
-    let reader = std::thread::spawn(move || {
-        let mut buf = [0u8; 1024];
+    let reader_handle = tokio::spawn(async move {
+        let mut buf = [0u8; 4096];
 
         while running_reader.load(Ordering::SeqCst) {
             let n = {
-                let mut guard = match port_reader.lock() {
-                    Ok(g) => g,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
+                let mut guard = port_reader.lock().await;
                 match guard.read(&mut buf) {
                     Ok(n) => n,
                     Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => 0,
@@ -317,27 +321,30 @@ fn main() -> Result<()> {
                 let _ = serial_tx_clone.send(SerialData::Received(display_text));
 
                 // RX log file
-                if let Some(w) = &rx_log_writer_reader
-                    && let Ok(mut lw) = w.lock()
-                {
-                    if log_ts {
-                        let _ = write!(lw, "[{}] ", now_rfc3339());
-                    }
-                    if hex_mode {
-                        for (i, b) in bytes.iter().enumerate() {
-                            let _ = write!(
-                                lw,
-                                "{:02X}{}",
-                                b,
-                                if i + 1 == bytes.len() { "" } else { " " }
-                            );
+                if let Some(w) = &rx_log_writer_reader {
+                    if let Ok(mut lw) = w.lock() {
+                        if log_ts {
+                            let _ = write!(lw, "[{}] ", now_rfc3339());
                         }
-                        let _ = writeln!(lw);
-                    } else {
-                        let _ = lw.write_all(bytes);
+                        if hex_mode {
+                            for (i, b) in bytes.iter().enumerate() {
+                                let _ = write!(
+                                    lw,
+                                    "{:02X}{}",
+                                    b,
+                                    if i + 1 == bytes.len() { "" } else { " " }
+                                );
+                            }
+                            let _ = writeln!(lw);
+                        } else {
+                            let _ = lw.write_all(bytes);
+                        }
+                        let _ = lw.flush();
                     }
-                    let _ = lw.flush();
                 }
+            } else {
+                // Small async yield to prevent busy waiting
+                tokio::task::yield_now().await;
             }
         }
     });
@@ -360,7 +367,7 @@ fn main() -> Result<()> {
             tx_log: tx_log_writer.clone(),
             log_ts: args.log_ts,
         },
-    );
+    ).await;
 
     // Cleanup terminal
     terminal::disable_raw_mode()?;
@@ -369,7 +376,7 @@ fn main() -> Result<()> {
 
     // Ensure we stop and join reader
     running.store(false, Ordering::SeqCst);
-    let _ = reader.join();
+    let _ = reader_handle.await;
 
     if let Err(e) = ui_res {
         eprintln!("\nError: {e:?}");
@@ -457,6 +464,7 @@ enum SerialData {
 struct AppState {
     input_line: String,
     output_lines: Vec<String>,
+    partial_line: String,
     list_state: ListState,
     auto_scroll_state: ListState,
     should_quit: bool,
@@ -468,6 +476,7 @@ impl AppState {
         Self {
             input_line: String::new(),
             output_lines: Vec::new(),
+            partial_line: String::new(),
             list_state: ListState::default(),
             auto_scroll_state: ListState::default(),
             should_quit: false,
@@ -476,20 +485,25 @@ impl AppState {
     }
 
     fn add_output(&mut self, data: String) {
-        // Split multi-line data into individual lines for proper scrolling
-        for line in data.lines() {
-            self.output_lines.push(line.to_string());
+        // Append to partial line buffer
+        self.partial_line.push_str(&data);
+        
+        // Check if we have complete lines (ending with \n or \r\n)
+        while let Some(newline_pos) = self.partial_line.find('\n') {
+            // Extract complete line (without the newline)
+            let complete_line = self.partial_line[..newline_pos].trim_end_matches('\r').to_string();
+            self.output_lines.push(complete_line);
+            
+            // Remove processed part from partial_line
+            self.partial_line.drain(..=newline_pos);
         }
-
-        // If the data didn't end with a newline, the last "line" might be incomplete
-        // But for serial output, we'll treat each chunk as complete
 
         // Keep only the last 1000 lines to prevent memory issues
         if self.output_lines.len() > 1000 {
             self.output_lines.drain(..self.output_lines.len() - 1000);
         }
 
-        // Update auto-scroll state to point to the new bottom (temporary: with highlight to test)
+        // Update auto-scroll state to point to the new bottom
         if !self.output_lines.is_empty() {
             self.auto_scroll_state
                 .select(Some(self.output_lines.len() - 1));
@@ -554,14 +568,14 @@ struct SerialConfig {
 struct UiConfig {
     running: Arc<AtomicBool>,
     line_ending: LineEnding,
-    tx_log: Option<Arc<Mutex<BufWriter<std::fs::File>>>>,
+    tx_log: Option<Arc<StdMutex<BufWriter<std::fs::File>>>>,
     log_ts: bool,
 }
 
-fn run_ui<B: Backend>(
+async fn run_ui<B: Backend>(
     terminal: &mut Terminal<B>,
-    ui_rx: Receiver<UiMessage>,
-    serial_rx: Receiver<SerialData>,
+    mut ui_rx: mpsc::UnboundedReceiver<UiMessage>,
+    mut serial_rx: mpsc::UnboundedReceiver<SerialData>,
     serial_config: SerialConfig,
     ui_config: UiConfig,
 ) -> Result<()> {
@@ -588,7 +602,7 @@ fn run_ui<B: Backend>(
         }
 
         // Handle keyboard input
-        if event::poll(Duration::from_millis(16))? {
+        if event::poll(Duration::from_millis(5))? {
             match event::read()? {
                 Event::Key(k) if k.kind == KeyEventKind::Press => {
                     match k.code {
@@ -612,7 +626,7 @@ fn run_ui<B: Backend>(
                         KeyCode::Enter => {
                             // Send the complete line to serial port
                             if !app_state.input_line.is_empty() {
-                                write_bytes(&serial_config.port, app_state.input_line.as_bytes())?;
+                                write_bytes_async(&serial_config.port, app_state.input_line.as_bytes()).await?;
                                 if let Some(w) = &ui_config.tx_log
                                     && let Ok(mut lw) = w.lock()
                                 {
@@ -627,7 +641,7 @@ fn run_ui<B: Backend>(
                             // Send line ending
                             let end = ui_config.line_ending.bytes();
                             if !end.is_empty() {
-                                write_bytes(&serial_config.port, end)?;
+                                write_bytes_async(&serial_config.port, end).await?;
                                 if let Some(w) = &ui_config.tx_log
                                     && let Ok(mut lw) = w.lock()
                                 {
@@ -748,11 +762,8 @@ fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     ));
 }
 
-fn write_bytes(port: &Arc<Mutex<Box<dyn SerialPort + Send>>>, bytes: &[u8]) -> Result<()> {
-    let mut guard = match port.lock() {
-        Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
-    };
+async fn write_bytes_async(port: &Arc<Mutex<Box<dyn SerialPort + Send>>>, bytes: &[u8]) -> Result<()> {
+    let mut guard = port.lock().await;
     guard.write_all(bytes)?;
     guard.flush()?;
     Ok(())
