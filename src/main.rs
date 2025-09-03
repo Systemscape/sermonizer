@@ -5,7 +5,7 @@ use ratatui::{
     backend::{CrosstermBackend, Backend},
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame, Terminal,
 };
 use serialport::{SerialPort, SerialPortType};
@@ -456,7 +456,10 @@ enum SerialData {
 struct AppState {
     input_line: String,
     output_lines: Vec<String>,
+    list_state: ListState,
+    auto_scroll_state: ListState,
     should_quit: bool,
+    auto_scroll: bool,
 }
 
 impl AppState {
@@ -464,15 +467,73 @@ impl AppState {
         Self {
             input_line: String::new(),
             output_lines: Vec::new(),
+            list_state: ListState::default(),
+            auto_scroll_state: ListState::default(),
             should_quit: false,
+            auto_scroll: true,
         }
     }
     
-    fn add_output(&mut self, line: String) {
-        self.output_lines.push(line);
+    fn add_output(&mut self, data: String) {
+        // Split multi-line data into individual lines for proper scrolling
+        for line in data.lines() {
+            self.output_lines.push(line.to_string());
+        }
+        
+        // If the data didn't end with a newline, the last "line" might be incomplete
+        // But for serial output, we'll treat each chunk as complete
+        
         // Keep only the last 1000 lines to prevent memory issues
         if self.output_lines.len() > 1000 {
             self.output_lines.drain(..self.output_lines.len() - 1000);
+        }
+        
+        // Update auto-scroll state to point to the new bottom (temporary: with highlight to test)
+        if !self.output_lines.is_empty() {
+            self.auto_scroll_state.select(Some(self.output_lines.len() - 1));
+        }
+    }
+    
+    fn scroll_up(&mut self) {
+        if self.output_lines.is_empty() { return; }
+        // Disable auto-scroll when manually scrolling
+        self.auto_scroll = false;
+        
+        let selected = self.list_state.selected().unwrap_or(self.output_lines.len() - 1);
+        if selected > 0 {
+            self.list_state.select(Some(selected - 1));
+        }
+    }
+    
+    fn scroll_down(&mut self) {
+        if self.output_lines.is_empty() { return; }
+        // Disable auto-scroll when manually scrolling
+        self.auto_scroll = false;
+        
+        let selected = self.list_state.selected().unwrap_or(0);
+        if selected < self.output_lines.len() - 1 {
+            self.list_state.select(Some(selected + 1));
+        }
+    }
+    
+    fn scroll_to_bottom(&mut self) {
+        if !self.output_lines.is_empty() {
+            // Disable auto-scroll when manually scrolling to bottom
+            self.auto_scroll = false;
+            self.list_state.select(Some(self.output_lines.len() - 1));
+        }
+    }
+    
+    fn enable_auto_scroll(&mut self) {
+        self.auto_scroll = true;
+        self.list_state.select(None); // Clear selection when re-enabling auto-scroll
+    }
+    
+    fn scroll_to_home(&mut self) {
+        if !self.output_lines.is_empty() {
+            // Disable auto-scroll when manually scrolling to top
+            self.auto_scroll = false;
+            self.list_state.select(Some(0));
         }
     }
 }
@@ -522,6 +583,10 @@ fn run_ui<B: Backend>(
                         KeyCode::Esc => {
                             app_state.should_quit = true;
                         }
+                        KeyCode::Char('a') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                            // Ctrl+A to re-enable auto-scroll
+                            app_state.enable_auto_scroll();
+                        }
                         KeyCode::Char(c) => {
                             app_state.input_line.push(c);
                         }
@@ -557,6 +622,36 @@ fn run_ui<B: Backend>(
                         KeyCode::Backspace => {
                             app_state.input_line.pop();
                         }
+                        KeyCode::Up => {
+                            app_state.scroll_up();
+                        }
+                        KeyCode::Down => {
+                            app_state.scroll_down();
+                        }
+                        KeyCode::PageUp => {
+                            // Disable auto-scroll and scroll up by 10 lines
+                            app_state.auto_scroll = false;
+                            let current = app_state.list_state.selected().unwrap_or(app_state.output_lines.len().saturating_sub(1));
+                            let new_selected = current.saturating_sub(10);
+                            if !app_state.output_lines.is_empty() {
+                                app_state.list_state.select(Some(new_selected));
+                            }
+                        }
+                        KeyCode::PageDown => {
+                            // Disable auto-scroll and scroll down by 10 lines
+                            app_state.auto_scroll = false;
+                            let current = app_state.list_state.selected().unwrap_or(0);
+                            let new_selected = (current + 10).min(app_state.output_lines.len().saturating_sub(1));
+                            if !app_state.output_lines.is_empty() {
+                                app_state.list_state.select(Some(new_selected));
+                            }
+                        }
+                        KeyCode::Home => {
+                            app_state.scroll_to_home();
+                        }
+                        KeyCode::End => {
+                            app_state.scroll_to_bottom();
+                        }
                         _ => {}
                     }
                 }
@@ -565,14 +660,14 @@ fn run_ui<B: Backend>(
         }
 
         // Render the UI
-        terminal.draw(|f| draw_ui(f, &app_state))?;
+        terminal.draw(|f| draw_ui(f, &mut app_state))?;
     }
     
     running.store(false, Ordering::SeqCst);
     Ok(())
 }
 
-fn draw_ui(f: &mut Frame, app_state: &AppState) {
+fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -588,15 +683,29 @@ fn draw_ui(f: &mut Frame, app_state: &AppState) {
         .map(|line| ListItem::new(line.as_str()))
         .collect();
     
+    let title = if app_state.auto_scroll {
+        "Serial Monitor (Auto-scroll ON - ↑↓/PgUp/PgDn to scroll, Ctrl+A to re-enable auto-scroll)"
+    } else {
+        "Serial Monitor (Auto-scroll OFF - ↑↓/PgUp/PgDn to scroll, Ctrl+A to re-enable auto-scroll)"
+    };
+    
     let output_list = List::new(output_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Serial Monitor")
+                .title(title)
         )
-        .style(Style::default().fg(Color::White));
+        .style(Style::default().fg(Color::White))
+        .highlight_style(Style::default().fg(Color::Black).bg(Color::White));
     
-    f.render_widget(output_list, chunks[0]);
+    // Handle auto-scrolling vs manual scrolling
+    if app_state.auto_scroll {
+        // Use the persistent auto-scroll state that stays positioned at bottom
+        f.render_stateful_widget(output_list, chunks[0], &mut app_state.auto_scroll_state);
+    } else {
+        // Manual scrolling mode - use the user's scroll position  
+        f.render_stateful_widget(output_list, chunks[0], &mut app_state.list_state);
+    }
     
     // Input line
     let input_paragraph = Paragraph::new(app_state.input_line.as_str())
