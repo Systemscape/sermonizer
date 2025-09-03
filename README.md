@@ -1,6 +1,6 @@
 # 🔌 Sermonizer
 
-[![CI](https://github.com/USERNAME/sermonizer/workflows/CI/badge.svg)](https://github.com/systemscape/sermonizer/actions)
+[![CI](https://github.com/systemscape/sermonizer/actions/workflows/ci.yml/badge.svg)](https://github.com/systemscape/sermonizer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-brightgreen.svg)](https://www.rust-lang.org)
 
