@@ -582,29 +582,41 @@ async fn run_ui<B: Backend>(
     let mut app_state = AppState::new();
 
     while ui_config.running.load(Ordering::SeqCst) && !app_state.should_quit {
-        // Check for UI messages (like quit from Ctrl-C)
-        if let Ok(msg) = ui_rx.try_recv() {
-            match msg {
-                UiMessage::Quit => {
-                    app_state.should_quit = true;
-                    break;
+        tokio::select! {
+            // UI messages (like quit from Ctrl-C)
+            msg = ui_rx.recv() => {
+                if let Some(msg) = msg {
+                    match msg {
+                        UiMessage::Quit => {
+                            app_state.should_quit = true;
+                            break;
+                        }
+                    }
                 }
             }
-        }
 
-        // Check for serial data
-        if let Ok(data) = serial_rx.try_recv() {
-            match data {
-                SerialData::Received(line) => {
-                    app_state.add_output(line);
+            // Serial data
+            data = serial_rx.recv() => {
+                if let Some(data) = data {
+                    match data {
+                        SerialData::Received(line) => {
+                            app_state.add_output(line);
+                        }
+                    }
                 }
             }
-        }
 
-        // Handle keyboard input
-        if event::poll(Duration::from_millis(5))? {
-            match event::read()? {
-                Event::Key(k) if k.kind == KeyEventKind::Press => {
+            // Keyboard input - async wrapper for crossterm events
+            key_result = async {
+                if event::poll(Duration::from_millis(0)).unwrap_or(false) {
+                    event::read()
+                } else {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "no input"));
+                }
+            } => {
+                if let Ok(Event::Key(k)) = key_result {
+                    if k.kind == KeyEventKind::Press {
                     match k.code {
                         KeyCode::Char(c)
                             if k.modifiers.contains(KeyModifiers::CONTROL)
@@ -695,12 +707,12 @@ async fn run_ui<B: Backend>(
                         }
                         _ => {}
                     }
+                    }
                 }
-                _ => {}
             }
         }
 
-        // Render the UI
+        // Render the UI after processing events
         terminal.draw(|f| draw_ui(f, &mut app_state))?;
     }
 
