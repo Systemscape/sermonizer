@@ -1,58 +1,28 @@
-use anyhow::{Context, Result, bail};
-use clap::{Parser, ValueEnum};
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    terminal,
-};
-use ratatui::{
-    Frame, Terminal,
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-};
-use serialport::{SerialPort, SerialPortType};
-use std::fs::OpenOptions;
-use std::io::{BufWriter, Read, Write};
+mod config;
+mod logging;
+mod port_discovery;
+mod serial_io;
+mod time_utils;
+mod ui;
+
+use anyhow::{Context, Result};
+use clap::Parser;
+use config::{LineEnding, UiConfig};
+use crossterm::terminal;
+use logging::{create_rx_log_writer, create_tx_log_writer};
+use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use serial_io::{SerialData, SerialReader};
+use serialport::SerialPort;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex as StdMutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
-
-/// Which line ending to send when you press Enter
-#[derive(Copy, Clone, Debug, ValueEnum)]
-enum LineEnding {
-    /// Send nothing extra (no line ending)
-    None,
-    /// Send '\n' (LF)
-    Nl,
-    /// Send '\r' (CR)
-    Cr,
-    /// Send "\r\n" (CRLF)
-    Crlf,
-}
-
-impl LineEnding {
-    fn describe(self) -> &'static str {
-        match self {
-            LineEnding::None => "none",
-            LineEnding::Nl => "LF (\\n)",
-            LineEnding::Cr => "CR (\\r)",
-            LineEnding::Crlf => "CRLF (\\r\\n)",
-        }
-    }
-    fn bytes(self) -> &'static [u8] {
-        match self {
-            LineEnding::None => b"",
-            LineEnding::Nl => b"\n",
-            LineEnding::Cr => b"\r",
-            LineEnding::Crlf => b"\r\n",
-        }
-    }
-}
+use tokio::sync::{mpsc, Mutex};
+use ui::{run_ui, UiMessage};
 
 /// sermonizer — a tiny, friendly serial monitor
 #[derive(Parser, Debug)]
@@ -91,76 +61,12 @@ struct Args {
     list: bool,
 }
 
-fn now_rfc3339() -> String {
-    // Simple RFC3339-ish time without timezone math (system local time)
-    let now = chrono_like_now();
-    format!("{}", now)
-}
-
-// Minimal, std-only timestamp (YYYY-MM-DD HH:MM:SS.mmm)
-fn chrono_like_now() -> impl std::fmt::Display {
-    use std::fmt;
-    use std::time::SystemTime;
-    struct Stamp(u128);
-    impl fmt::Display for Stamp {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let ms = self.0;
-            let secs = (ms / 1000) as i64;
-            let millis = (ms % 1000) as u32;
-            // Best effort human time; avoid external deps
-            let tm = time_conv(secs);
-            write!(
-                f,
-                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-                tm.0, tm.1, tm.2, tm.3, tm.4, tm.5, millis
-            )
-        }
-    }
-    fn time_conv(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-        // Very small local converter: assume UTC for portability.
-        // If you prefer local time, swap this for chrono.
-        let tm = secs_to_ymdhms_utc(secs);
-        (tm.0, tm.1, tm.2, tm.3, tm.4, tm.5)
-    }
-    fn secs_to_ymdhms_utc(s: i64) -> (i32, u32, u32, u32, u32, u32) {
-        // Algorithm adapted from civil time conversions; fine for logs.
-        const SECS_PER_DAY: i64 = 86_400;
-        let z = s.div_euclid(SECS_PER_DAY);
-        let secs_of_day = s.rem_euclid(SECS_PER_DAY);
-        let a = z + 719468;
-        let era = if a >= 0 { a } else { a - 146096 };
-        let doe = a - era * 146097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = (yoe as i32) + era as i32 * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = mp + if mp < 10 { 3 } else { -9 };
-        let y = y + (m <= 2) as i32;
-        let hour = (secs_of_day / 3600) as u32;
-        let min = ((secs_of_day % 3600) / 60) as u32;
-        let sec = (secs_of_day % 60) as u32;
-        (y, m as u32, d as u32, hour, min, sec)
-    }
-    let ms = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
-        .as_millis();
-    Stamp(ms)
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Enumerate ports up front
-    let all_ports = serialport::available_ports().context("Failed to list serial ports")?;
-
-    // Filter for realistic ports (USB ports with VID/PID)
-    let ports: Vec<_> = all_ports
-        .into_iter()
-        .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(_)))
-        .collect();
+    let ports = get_available_ports()?;
 
     if args.list {
         print_ports(&ports);
@@ -222,30 +128,8 @@ async fn main() -> Result<()> {
     let port: Arc<Mutex<Box<dyn SerialPort + Send>>> = Arc::new(Mutex::new(port));
 
     // Optional log files
-    let rx_log_writer: Option<Arc<StdMutex<BufWriter<std::fs::File>>>> = match &args.log {
-        Some(path) => {
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-                .with_context(|| format!("Failed to open log file: {}", path.display()))?;
-            println!("Logging RX to: {}", path.display());
-            Some(Arc::new(StdMutex::new(BufWriter::new(file))))
-        }
-        None => None,
-    };
-    let tx_log_writer: Option<Arc<StdMutex<BufWriter<std::fs::File>>>> = match &args.tx_log {
-        Some(path) => {
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-                .with_context(|| format!("Failed to open tx-log file: {}", path.display()))?;
-            println!("Logging TX to: {}", path.display());
-            Some(Arc::new(StdMutex::new(BufWriter::new(file))))
-        }
-        None => None,
-    };
+    let rx_log_writer = create_rx_log_writer(args.log.as_ref())?;
+    let tx_log_writer = create_tx_log_writer(args.tx_log.as_ref())?;
 
     // Handle Ctrl-C with immediate shutdown
     let running = Arc::new(AtomicBool::new(true));
@@ -256,10 +140,10 @@ async fn main() -> Result<()> {
         let shutdown_tx = shutdown_tx.clone();
         ctrlc::set_handler(move || {
             running.store(false, Ordering::SeqCst);
-            if let Ok(tx_guard) = shutdown_tx.lock()
-                && let Some(tx) = tx_guard.as_ref()
-            {
-                let _ = tx.send(UiMessage::Quit);
+            if let Ok(tx_guard) = shutdown_tx.lock() {
+                if let Some(tx) = tx_guard.as_ref() {
+                    let _ = tx.send(UiMessage::Quit);
+                }
             }
         })
         .expect("Failed to set Ctrl-C handler");
@@ -272,81 +156,17 @@ async fn main() -> Result<()> {
     // Store UI sender for Ctrl-C handler
     *shutdown_tx.lock().unwrap() = Some(ui_tx.clone());
 
-    // Spawn reader thread (RX)
-    let port_reader = port.clone();
-    let running_reader = running.clone();
-    let rx_log_writer_reader = rx_log_writer.clone();
-    let hex_mode = args.hex;
-    let log_ts = args.log_ts;
-    let serial_tx_clone = serial_tx.clone();
+    // Spawn reader thread (RX) - now using the optimized SerialReader
+    let serial_reader = SerialReader::new(
+        port.clone(),
+        running.clone(),
+        serial_tx.clone(),
+        args.hex,
+        args.log_ts,
+        rx_log_writer.clone(),
+    );
     let reader_handle = tokio::spawn(async move {
-        let mut buf = [0u8; 4096];
-
-        while running_reader.load(Ordering::SeqCst) {
-            let n = {
-                let mut guard = port_reader.lock().await;
-                match guard.read(&mut buf) {
-                    Ok(n) => n,
-                    Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => 0,
-                    Err(_) => break,
-                }
-            };
-
-            if n > 0 {
-                let bytes = &buf[..n];
-
-                // Format the data
-                let display_text = if hex_mode {
-                    let mut hex_str = String::new();
-                    if log_ts {
-                        hex_str.push_str(&format!("[{}] ", now_rfc3339()));
-                    }
-                    for (i, b) in bytes.iter().enumerate() {
-                        hex_str.push_str(&format!(
-                            "{:02X}{}",
-                            b,
-                            if i + 1 == bytes.len() { "" } else { " " }
-                        ));
-                    }
-                    hex_str
-                } else {
-                    let mut text = String::new();
-                    if log_ts {
-                        text.push_str(&format!("[{}] ", now_rfc3339()));
-                    }
-                    text.push_str(&String::from_utf8_lossy(bytes));
-                    text
-                };
-
-                // Send to UI
-                let _ = serial_tx_clone.send(SerialData::Received(display_text));
-
-                // RX log file
-                if let Some(w) = &rx_log_writer_reader
-                    && let Ok(mut lw) = w.lock() {
-                        if log_ts {
-                            let _ = write!(lw, "[{}] ", now_rfc3339());
-                        }
-                        if hex_mode {
-                            for (i, b) in bytes.iter().enumerate() {
-                                let _ = write!(
-                                    lw,
-                                    "{:02X}{}",
-                                    b,
-                                    if i + 1 == bytes.len() { "" } else { " " }
-                                );
-                            }
-                            let _ = writeln!(lw);
-                        } else {
-                            let _ = lw.write_all(bytes);
-                        }
-                        let _ = lw.flush();
-                    }
-            } else {
-                // Small async yield to prevent busy waiting
-                tokio::task::yield_now().await;
-            }
-        }
+        serial_reader.run().await;
     });
 
     // Setup terminal for ratatui
@@ -356,19 +176,14 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let ui_res = run_ui(
-        &mut terminal,
-        ui_rx,
-        serial_rx,
-        SerialConfig { port: port.clone() },
-        UiConfig {
-            running: running.clone(),
-            line_ending,
-            tx_log: tx_log_writer.clone(),
-            log_ts: args.log_ts,
-        },
-    )
-    .await;
+    let ui_config = UiConfig {
+        running: running.clone(),
+        line_ending,
+        tx_log: tx_log_writer.clone(),
+        log_ts: args.log_ts,
+    };
+
+    let ui_res = run_ui(&mut terminal, ui_rx, serial_rx, port.clone(), ui_config).await;
 
     // Cleanup terminal
     terminal::disable_raw_mode()?;
@@ -384,404 +199,5 @@ async fn main() -> Result<()> {
     }
 
     println!("\nDisconnected. Bye!");
-    Ok(())
-}
-
-fn print_ports(ports: &[serialport::SerialPortInfo]) {
-    if ports.is_empty() {
-        println!("No serial ports found.");
-        return;
-    }
-    println!("Available serial ports:");
-    for (i, p) in ports.iter().enumerate() {
-        print!("  [{}] {}", i + 1, p.port_name);
-        match &p.port_type {
-            SerialPortType::UsbPort(info) => {
-                print!("  (USB");
-                print!(" vid=0x{:04x}", info.vid);
-                print!(" pid=0x{:04x}", info.pid);
-                if let Some(m) = &info.manufacturer {
-                    print!(" {m}");
-                }
-                if let Some(pn) = &info.product {
-                    print!(" {pn}");
-                }
-                print!(")");
-            }
-            SerialPortType::BluetoothPort => print!("  (Bluetooth)"),
-            SerialPortType::PciPort => print!("  (PCI)"),
-            SerialPortType::Unknown => {}
-        }
-        println!();
-    }
-}
-
-fn choose_port_interactive(ports: &[serialport::SerialPortInfo]) -> Result<String> {
-    match ports.len() {
-        0 => bail!("No serial ports detected. Plug your device in and try again."),
-        1 => {
-            let name = ports[0].port_name.clone();
-            println!("Auto-selected sole port: {name}");
-            Ok(name)
-        }
-        _ => {
-            print_ports(ports);
-            println!();
-            // Prompt in cooked mode for a clean input experience
-            print!("Select port [1-{}] (Enter for 1): ", ports.len());
-            let _ = std::io::stdout().flush();
-
-            // Temporarily disable raw mode if it was on (it isn’t yet, but be safe)
-            let was_raw = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
-            if was_raw {
-                let _ = crossterm::terminal::disable_raw_mode();
-            }
-
-            let mut line = String::new();
-            std::io::stdin().read_line(&mut line)?;
-            if was_raw {
-                let _ = crossterm::terminal::enable_raw_mode();
-            }
-
-            let sel = line.trim().parse::<usize>().unwrap_or(1);
-            let idx = sel.clamp(1, ports.len()) - 1;
-            let name = ports[idx].port_name.clone();
-            println!("Using port: {name}");
-            Ok(name)
-        }
-    }
-}
-
-#[derive(Debug)]
-enum UiMessage {
-    Quit,
-}
-
-#[derive(Debug, Clone)]
-enum SerialData {
-    Received(String),
-}
-
-struct AppState {
-    input_line: String,
-    output_lines: Vec<String>,
-    partial_line: String,
-    list_state: ListState,
-    auto_scroll_state: ListState,
-    should_quit: bool,
-    auto_scroll: bool,
-}
-
-impl AppState {
-    fn new() -> Self {
-        Self {
-            input_line: String::new(),
-            output_lines: Vec::new(),
-            partial_line: String::new(),
-            list_state: ListState::default(),
-            auto_scroll_state: ListState::default(),
-            should_quit: false,
-            auto_scroll: true,
-        }
-    }
-
-    fn add_output(&mut self, data: String) {
-        // Append to partial line buffer
-        self.partial_line.push_str(&data);
-
-        // Check if we have complete lines (ending with \n or \r\n)
-        while let Some(newline_pos) = self.partial_line.find('\n') {
-            // Extract complete line (without the newline)
-            let complete_line = self.partial_line[..newline_pos]
-                .trim_end_matches('\r')
-                .to_string();
-            self.output_lines.push(complete_line);
-
-            // Remove processed part from partial_line
-            self.partial_line.drain(..=newline_pos);
-        }
-
-        // Keep only the last 1000 lines to prevent memory issues
-        if self.output_lines.len() > 1000 {
-            self.output_lines.drain(..self.output_lines.len() - 1000);
-        }
-
-        // Update auto-scroll state to point to the new bottom
-        if !self.output_lines.is_empty() {
-            self.auto_scroll_state
-                .select(Some(self.output_lines.len() - 1));
-        }
-    }
-
-    fn scroll_up(&mut self) {
-        if self.output_lines.is_empty() {
-            return;
-        }
-        // Disable auto-scroll when manually scrolling
-        self.auto_scroll = false;
-
-        let selected = self
-            .list_state
-            .selected()
-            .unwrap_or(self.output_lines.len() - 1);
-        if selected > 0 {
-            self.list_state.select(Some(selected - 1));
-        }
-    }
-
-    fn scroll_down(&mut self) {
-        if self.output_lines.is_empty() {
-            return;
-        }
-        // Disable auto-scroll when manually scrolling
-        self.auto_scroll = false;
-
-        let selected = self.list_state.selected().unwrap_or(0);
-        if selected < self.output_lines.len() - 1 {
-            self.list_state.select(Some(selected + 1));
-        }
-    }
-
-    fn scroll_to_bottom(&mut self) {
-        if !self.output_lines.is_empty() {
-            // Disable auto-scroll when manually scrolling to bottom
-            self.auto_scroll = false;
-            self.list_state.select(Some(self.output_lines.len() - 1));
-        }
-    }
-
-    fn enable_auto_scroll(&mut self) {
-        self.auto_scroll = true;
-        self.list_state.select(None); // Clear selection when re-enabling auto-scroll
-    }
-
-    fn scroll_to_home(&mut self) {
-        if !self.output_lines.is_empty() {
-            // Disable auto-scroll when manually scrolling to top
-            self.auto_scroll = false;
-            self.list_state.select(Some(0));
-        }
-    }
-}
-
-struct SerialConfig {
-    port: Arc<Mutex<Box<dyn SerialPort + Send>>>,
-}
-
-struct UiConfig {
-    running: Arc<AtomicBool>,
-    line_ending: LineEnding,
-    tx_log: Option<Arc<StdMutex<BufWriter<std::fs::File>>>>,
-    log_ts: bool,
-}
-
-async fn run_ui<B: Backend>(
-    terminal: &mut Terminal<B>,
-    mut ui_rx: mpsc::UnboundedReceiver<UiMessage>,
-    mut serial_rx: mpsc::UnboundedReceiver<SerialData>,
-    serial_config: SerialConfig,
-    ui_config: UiConfig,
-) -> Result<()> {
-    let mut app_state = AppState::new();
-
-    while ui_config.running.load(Ordering::SeqCst) && !app_state.should_quit {
-        tokio::select! {
-            // UI messages (like quit from Ctrl-C)
-            msg = ui_rx.recv() => {
-                if let Some(msg) = msg {
-                    match msg {
-                        UiMessage::Quit => {
-                            app_state.should_quit = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Serial data
-            data = serial_rx.recv() => {
-                if let Some(data) = data {
-                    match data {
-                        SerialData::Received(line) => {
-                            app_state.add_output(line);
-                        }
-                    }
-                }
-            }
-
-            // Keyboard input - async wrapper for crossterm events
-            key_result = async {
-                if event::poll(Duration::from_millis(0)).unwrap_or(false) {
-                    event::read()
-                } else {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                    Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "no input"))
-                }
-            } => {
-                if let Ok(Event::Key(k)) = key_result
-                    && k.kind == KeyEventKind::Press {
-                    match k.code {
-                        KeyCode::Char(c)
-                            if k.modifiers.contains(KeyModifiers::CONTROL)
-                                && (c == 'c' || c == 'd') =>
-                        {
-                            app_state.should_quit = true;
-                            break;
-                        }
-                        KeyCode::Esc => {
-                            app_state.should_quit = true;
-                        }
-                        KeyCode::Char('a') if k.modifiers.contains(KeyModifiers::CONTROL) => {
-                            // Ctrl+A to re-enable auto-scroll
-                            app_state.enable_auto_scroll();
-                        }
-                        KeyCode::Char(c) => {
-                            app_state.input_line.push(c);
-                        }
-                        KeyCode::Enter => {
-                            // Send the complete line to serial port
-                            if !app_state.input_line.is_empty() {
-                                write_bytes_async(&serial_config.port, app_state.input_line.as_bytes()).await?;
-                                if let Some(w) = &ui_config.tx_log
-                                    && let Ok(mut lw) = w.lock()
-                                {
-                                    if ui_config.log_ts {
-                                        let _ = write!(lw, "[{}] ", now_rfc3339());
-                                    }
-                                    let _ = lw.write_all(app_state.input_line.as_bytes());
-                                    let _ = lw.flush();
-                                }
-                            }
-
-                            // Send line ending
-                            let end = ui_config.line_ending.bytes();
-                            if !end.is_empty() {
-                                write_bytes_async(&serial_config.port, end).await?;
-                                if let Some(w) = &ui_config.tx_log
-                                    && let Ok(mut lw) = w.lock()
-                                {
-                                    if ui_config.log_ts && app_state.input_line.is_empty() {
-                                        let _ = write!(lw, "[{}] ", now_rfc3339());
-                                    }
-                                    let _ = lw.write_all(end);
-                                    let _ = lw.flush();
-                                }
-                            }
-
-                            // Clear input for next line
-                            app_state.input_line.clear();
-                        }
-                        KeyCode::Backspace => {
-                            app_state.input_line.pop();
-                        }
-                        KeyCode::Up => {
-                            app_state.scroll_up();
-                        }
-                        KeyCode::Down => {
-                            app_state.scroll_down();
-                        }
-                        KeyCode::PageUp => {
-                            // Disable auto-scroll and scroll up by 10 lines
-                            app_state.auto_scroll = false;
-                            let current = app_state
-                                .list_state
-                                .selected()
-                                .unwrap_or(app_state.output_lines.len().saturating_sub(1));
-                            let new_selected = current.saturating_sub(10);
-                            if !app_state.output_lines.is_empty() {
-                                app_state.list_state.select(Some(new_selected));
-                            }
-                        }
-                        KeyCode::PageDown => {
-                            // Disable auto-scroll and scroll down by 10 lines
-                            app_state.auto_scroll = false;
-                            let current = app_state.list_state.selected().unwrap_or(0);
-                            let new_selected =
-                                (current + 10).min(app_state.output_lines.len().saturating_sub(1));
-                            if !app_state.output_lines.is_empty() {
-                                app_state.list_state.select(Some(new_selected));
-                            }
-                        }
-                        KeyCode::Home => {
-                            app_state.scroll_to_home();
-                        }
-                        KeyCode::End => {
-                            app_state.scroll_to_bottom();
-                        }
-                        _ => {}
-                    }
-                    }
-            }
-        }
-
-        // Render the UI after processing events
-        terminal.draw(|f| draw_ui(f, &mut app_state))?;
-    }
-
-    ui_config.running.store(false, Ordering::SeqCst);
-    Ok(())
-}
-
-fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(1),    // Output area (takes most space)
-            Constraint::Length(3), // Input area (fixed height)
-        ])
-        .split(f.area());
-
-    // Serial monitor output
-    let output_items: Vec<ListItem> = app_state
-        .output_lines
-        .iter()
-        .map(|line| ListItem::new(line.as_str()))
-        .collect();
-
-    let title = if app_state.auto_scroll {
-        "Serial Monitor (Auto-scroll ON - ↑↓/PgUp/PgDn to scroll, Ctrl+A to re-enable auto-scroll)"
-    } else {
-        "Serial Monitor (Auto-scroll OFF - ↑↓/PgUp/PgDn to scroll, Ctrl+A to re-enable auto-scroll)"
-    };
-
-    let output_list = List::new(output_items)
-        .block(Block::default().borders(Borders::ALL).title(title))
-        .style(Style::default().fg(Color::White))
-        .highlight_style(Style::default().fg(Color::Black).bg(Color::White));
-
-    // Handle auto-scrolling vs manual scrolling
-    if app_state.auto_scroll {
-        // Use the persistent auto-scroll state that stays positioned at bottom
-        f.render_stateful_widget(output_list, chunks[0], &mut app_state.auto_scroll_state);
-    } else {
-        // Manual scrolling mode - use the user's scroll position
-        f.render_stateful_widget(output_list, chunks[0], &mut app_state.list_state);
-    }
-
-    // Input line
-    let input_paragraph = Paragraph::new(app_state.input_line.as_str())
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Input (Press Enter to send, Ctrl+C or Esc to exit)"),
-        )
-        .style(Style::default().fg(Color::Yellow));
-
-    f.render_widget(input_paragraph, chunks[1]);
-
-    // Set cursor position in input field
-    f.set_cursor_position((
-        chunks[1].x + app_state.input_line.len() as u16 + 1,
-        chunks[1].y + 1,
-    ));
-}
-
-async fn write_bytes_async(
-    port: &Arc<Mutex<Box<dyn SerialPort + Send>>>,
-    bytes: &[u8],
-) -> Result<()> {
-    let mut guard = port.lock().await;
-    guard.write_all(bytes)?;
-    guard.flush()?;
     Ok(())
 }
