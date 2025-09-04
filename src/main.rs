@@ -2,7 +2,6 @@ mod config;
 mod logging;
 mod port_discovery;
 mod serial_io;
-mod time_utils;
 mod ui;
 
 use anyhow::{Context, Result};

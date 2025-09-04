@@ -3,7 +3,7 @@ use serialport::SerialPort;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{mpsc, Mutex};
-use crate::time_utils::CachedTimestamp;
+use chrono::Utc;
 
 #[derive(Debug, Clone)]
 pub enum SerialData {
@@ -17,7 +17,7 @@ pub struct SerialReader {
     hex_mode: bool,
     log_ts: bool,
     rx_log_writer: Option<Arc<std::sync::Mutex<std::io::BufWriter<std::fs::File>>>>,
-    cached_timestamp: CachedTimestamp,
+    // No cached timestamp needed with chrono
     buffer: Vec<u8>, // Pre-allocated buffer
 }
 
@@ -37,7 +37,7 @@ impl SerialReader {
             hex_mode,
             log_ts,
             rx_log_writer,
-            cached_timestamp: CachedTimestamp::new(),
+            // No cached timestamp initialization needed
             buffer: vec![0u8; 4096], // Pre-allocate buffer to avoid allocations
         }
     }
@@ -85,7 +85,7 @@ impl SerialReader {
         
         if self.log_ts {
             hex_str.push_str("[");
-            hex_str.push_str(self.cached_timestamp.now_rfc3339());
+            hex_str.push_str(&Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string());
             hex_str.push_str("] ");
         }
         
@@ -106,7 +106,7 @@ impl SerialReader {
         
         if self.log_ts {
             text.push_str("[");
-            text.push_str(self.cached_timestamp.now_rfc3339());
+            text.push_str(&Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string());
             text.push_str("] ");
         }
         
@@ -121,7 +121,7 @@ impl SerialReader {
                 use std::io::Write;
                 
                 if self.log_ts {
-                    let _ = write!(lw, "[{}] ", self.cached_timestamp.now_rfc3339());
+                    let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
                 }
                 
                 if self.hex_mode {

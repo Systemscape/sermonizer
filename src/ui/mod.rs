@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 
 use crate::config::UiConfig;
 use crate::serial_io::{write_bytes_async, SerialData};
-use crate::time_utils::CachedTimestamp;
+use chrono::Utc;
 
 #[derive(Debug)]
 pub enum UiMessage {
@@ -31,7 +31,7 @@ pub async fn run_ui<B: Backend>(
     ui_config: UiConfig,
 ) -> Result<()> {
     let mut app_state = AppState::new();
-    let mut cached_timestamp = CachedTimestamp::new();
+    // No cached timestamp needed with chrono
 
     while ui_config.running.load(Ordering::SeqCst) && !app_state.should_quit {
         tokio::select! {
@@ -69,7 +69,7 @@ pub async fn run_ui<B: Backend>(
             } => {
                 if let Ok(Event::Key(k)) = key_result
                     && k.kind == KeyEventKind::Press {
-                    handle_key_event(k, &mut app_state, &port, &ui_config, &mut cached_timestamp).await?;
+                    handle_key_event(k, &mut app_state, &port, &ui_config).await?;
                 }
             }
         }
@@ -90,7 +90,6 @@ async fn handle_key_event(
     app_state: &mut AppState,
     port: &Arc<tokio::sync::Mutex<Box<dyn serialport::SerialPort + Send>>>,
     ui_config: &UiConfig,
-    cached_timestamp: &mut CachedTimestamp,
 ) -> Result<()> {
     match key.code {
         KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) && (c == 'c' || c == 'd') => {
@@ -107,7 +106,7 @@ async fn handle_key_event(
             app_state.update_input(c);
         }
         KeyCode::Enter => {
-            handle_enter_key(app_state, port, ui_config, cached_timestamp).await?;
+            handle_enter_key(app_state, port, ui_config).await?;
         }
         KeyCode::Backspace => {
             app_state.backspace_input();
@@ -139,7 +138,6 @@ async fn handle_enter_key(
     app_state: &mut AppState,
     port: &Arc<tokio::sync::Mutex<Box<dyn serialport::SerialPort + Send>>>,
     ui_config: &UiConfig,
-    cached_timestamp: &mut CachedTimestamp,
 ) -> Result<()> {
     let input = app_state.clear_input();
 
@@ -150,7 +148,7 @@ async fn handle_enter_key(
             if let Ok(mut lw) = w.lock() {
                 use std::io::Write;
                 if ui_config.log_ts {
-                    let _ = write!(lw, "[{}] ", cached_timestamp.now_rfc3339());
+                    let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
                 }
                 let _ = lw.write_all(input.as_bytes());
                 let _ = lw.flush();
@@ -166,7 +164,7 @@ async fn handle_enter_key(
             if let Ok(mut lw) = w.lock() {
                 use std::io::Write;
                 if ui_config.log_ts && input.is_empty() {
-                    let _ = write!(lw, "[{}] ", cached_timestamp.now_rfc3339());
+                    let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
                 }
                 let _ = lw.write_all(end);
                 let _ = lw.flush();
