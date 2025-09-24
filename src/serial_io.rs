@@ -84,7 +84,7 @@ impl SerialReader {
         let mut hex_str = String::with_capacity(capacity);
 
         if self.log_ts {
-            hex_str.push_str("[");
+            hex_str.push('[');
             hex_str.push_str(&Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string());
             hex_str.push_str("] ");
         }
@@ -105,7 +105,7 @@ impl SerialReader {
         let mut text = String::with_capacity(capacity);
 
         if self.log_ts {
-            text.push_str("[");
+            text.push('[');
             text.push_str(&Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string());
             text.push_str("] ");
         }
@@ -116,8 +116,8 @@ impl SerialReader {
     }
 
     async fn write_to_log(&mut self, bytes: &[u8]) {
-        if let Some(w) = &self.rx_log_writer {
-            if let Ok(mut lw) = w.lock() {
+        if let Some(w) = &self.rx_log_writer
+            && let Ok(mut lw) = w.lock() {
                 use std::io::Write;
 
                 if self.log_ts {
@@ -136,7 +136,6 @@ impl SerialReader {
 
                 let _ = lw.flush();
             }
-        }
     }
 }
 

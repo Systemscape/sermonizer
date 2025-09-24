@@ -144,8 +144,8 @@ async fn handle_enter_key(
     // Send the complete line to serial port
     if !input.is_empty() {
         write_bytes_async(port, input.as_bytes()).await?;
-        if let Some(w) = &ui_config.tx_log {
-            if let Ok(mut lw) = w.lock() {
+        if let Some(w) = &ui_config.tx_log
+            && let Ok(mut lw) = w.lock() {
                 use std::io::Write;
                 if ui_config.log_ts {
                     let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
@@ -153,15 +153,14 @@ async fn handle_enter_key(
                 let _ = lw.write_all(input.as_bytes());
                 let _ = lw.flush();
             }
-        }
     }
 
     // Send line ending
     let end = ui_config.line_ending.bytes();
     if !end.is_empty() {
         write_bytes_async(port, end).await?;
-        if let Some(w) = &ui_config.tx_log {
-            if let Ok(mut lw) = w.lock() {
+        if let Some(w) = &ui_config.tx_log
+            && let Ok(mut lw) = w.lock() {
                 use std::io::Write;
                 if ui_config.log_ts && input.is_empty() {
                     let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
@@ -169,7 +168,6 @@ async fn handle_enter_key(
                 let _ = lw.write_all(end);
                 let _ = lw.flush();
             }
-        }
     }
 
     Ok(())
