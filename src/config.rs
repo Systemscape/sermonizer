@@ -1,9 +1,6 @@
 use clap::ValueEnum;
-use std::sync::{
-    Arc, Mutex as StdMutex,
-    atomic::AtomicBool,
-};
 use std::io::BufWriter;
+use std::sync::{Arc, Mutex as StdMutex, atomic::AtomicBool};
 
 /// Which line ending to send when you press Enter
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -27,7 +24,7 @@ impl LineEnding {
             LineEnding::Crlf => "CRLF (\\r\\n)",
         }
     }
-    
+
     pub fn bytes(self) -> &'static [u8] {
         match self {
             LineEnding::None => b"",

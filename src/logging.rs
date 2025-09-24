@@ -12,7 +12,7 @@ pub fn create_log_writer(path: &PathBuf, log_type: &str) -> Result<LogWriter> {
         .append(true)
         .open(path)
         .with_context(|| format!("Failed to open {} log file: {}", log_type, path.display()))?;
-    
+
     println!("Logging {} to: {}", log_type, path.display());
     Ok(Arc::new(Mutex::new(BufWriter::new(file))))
 }

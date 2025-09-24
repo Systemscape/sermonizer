@@ -55,7 +55,7 @@ impl AppState {
                 self.auto_scroll_state
                     .select(Some(self.output_lines.len() - 1));
             }
-            
+
             self.needs_render = true;
         }
     }

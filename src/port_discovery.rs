@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serialport::{SerialPortInfo, SerialPortType};
 use std::io::{self, Write};
 

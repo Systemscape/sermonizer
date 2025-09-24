@@ -5,17 +5,15 @@ pub use app_state::AppState;
 pub use rendering::draw_ui;
 
 use anyhow::Result;
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-};
-use ratatui::{backend::Backend, Terminal};
-use std::sync::atomic::Ordering;
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::{Terminal, backend::Backend};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::config::UiConfig;
-use crate::serial_io::{write_bytes_async, SerialData};
+use crate::serial_io::{SerialData, write_bytes_async};
 use chrono::Utc;
 
 #[derive(Debug)]
@@ -92,7 +90,9 @@ async fn handle_key_event(
     ui_config: &UiConfig,
 ) -> Result<()> {
     match key.code {
-        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) && (c == 'c' || c == 'd') => {
+        KeyCode::Char(c)
+            if key.modifiers.contains(KeyModifiers::CONTROL) && (c == 'c' || c == 'd') =>
+        {
             app_state.quit();
         }
         KeyCode::Esc => {

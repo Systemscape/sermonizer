@@ -1,10 +1,10 @@
+use super::app_state::AppState;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
-use super::app_state::AppState;
 
 pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     let chunks = Layout::default()

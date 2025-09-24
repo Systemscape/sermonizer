@@ -1,9 +1,9 @@
 use anyhow::Result;
+use chrono::Utc;
 use serialport::SerialPort;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::{mpsc, Mutex};
-use chrono::Utc;
+use tokio::sync::{Mutex, mpsc};
 
 #[derive(Debug, Clone)]
 pub enum SerialData {
@@ -82,13 +82,13 @@ impl SerialReader {
     fn format_hex_data(&mut self, bytes: &[u8]) -> String {
         let capacity = if self.log_ts { 32 } else { 0 } + bytes.len() * 3; // Estimate capacity
         let mut hex_str = String::with_capacity(capacity);
-        
+
         if self.log_ts {
             hex_str.push_str("[");
             hex_str.push_str(&Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string());
             hex_str.push_str("] ");
         }
-        
+
         // Optimize hex formatting with pre-allocated string
         for (i, b) in bytes.iter().enumerate() {
             if i > 0 {
@@ -96,20 +96,20 @@ impl SerialReader {
             }
             hex_str.push_str(&format!("{:02X}", b));
         }
-        
+
         hex_str
     }
 
     fn format_text_data(&mut self, bytes: &[u8]) -> String {
         let capacity = if self.log_ts { 32 } else { 0 } + bytes.len();
         let mut text = String::with_capacity(capacity);
-        
+
         if self.log_ts {
             text.push_str("[");
             text.push_str(&Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string());
             text.push_str("] ");
         }
-        
+
         // Use from_utf8_lossy but avoid extra allocations where possible
         text.push_str(&String::from_utf8_lossy(bytes));
         text
@@ -119,11 +119,11 @@ impl SerialReader {
         if let Some(w) = &self.rx_log_writer {
             if let Ok(mut lw) = w.lock() {
                 use std::io::Write;
-                
+
                 if self.log_ts {
                     let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
                 }
-                
+
                 if self.hex_mode {
                     for (i, b) in bytes.iter().enumerate() {
                         let separator = if i + 1 == bytes.len() { "" } else { " " };
@@ -133,7 +133,7 @@ impl SerialReader {
                 } else {
                     let _ = lw.write_all(bytes);
                 }
-                
+
                 let _ = lw.flush();
             }
         }

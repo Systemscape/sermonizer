@@ -10,7 +10,7 @@ use config::{LineEnding, UiConfig};
 use crossterm::terminal;
 use logging::{create_rx_log_writer, create_tx_log_writer};
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use serial_io::{SerialData, SerialReader};
 use serialport::SerialPort;
 use std::io::Read;
@@ -20,8 +20,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
-use ui::{run_ui, UiMessage};
+use tokio::sync::{Mutex, mpsc};
+use ui::{UiMessage, run_ui};
 
 /// sermonizer — a tiny, friendly serial monitor
 #[derive(Parser, Debug)]
