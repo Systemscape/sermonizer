@@ -117,25 +117,26 @@ impl SerialReader {
 
     async fn write_to_log(&mut self, bytes: &[u8]) {
         if let Some(w) = &self.rx_log_writer
-            && let Ok(mut lw) = w.lock() {
-                use std::io::Write;
+            && let Ok(mut lw) = w.lock()
+        {
+            use std::io::Write;
 
-                if self.log_ts {
-                    let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
-                }
-
-                if self.hex_mode {
-                    for (i, b) in bytes.iter().enumerate() {
-                        let separator = if i + 1 == bytes.len() { "" } else { " " };
-                        let _ = write!(lw, "{:02X}{}", b, separator);
-                    }
-                    let _ = writeln!(lw);
-                } else {
-                    let _ = lw.write_all(bytes);
-                }
-
-                let _ = lw.flush();
+            if self.log_ts {
+                let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
             }
+
+            if self.hex_mode {
+                for (i, b) in bytes.iter().enumerate() {
+                    let separator = if i + 1 == bytes.len() { "" } else { " " };
+                    let _ = write!(lw, "{:02X}{}", b, separator);
+                }
+                let _ = writeln!(lw);
+            } else {
+                let _ = lw.write_all(bytes);
+            }
+
+            let _ = lw.flush();
+        }
     }
 }
 

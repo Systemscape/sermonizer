@@ -140,9 +140,10 @@ async fn main() -> Result<()> {
         ctrlc::set_handler(move || {
             running.store(false, Ordering::SeqCst);
             if let Ok(tx_guard) = shutdown_tx.lock()
-                && let Some(tx) = tx_guard.as_ref() {
-                    let _ = tx.send(UiMessage::Quit);
-                }
+                && let Some(tx) = tx_guard.as_ref()
+            {
+                let _ = tx.send(UiMessage::Quit);
+            }
         })
         .expect("Failed to set Ctrl-C handler");
     }

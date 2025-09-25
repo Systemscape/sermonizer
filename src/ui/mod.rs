@@ -145,14 +145,15 @@ async fn handle_enter_key(
     if !input.is_empty() {
         write_bytes_async(port, input.as_bytes()).await?;
         if let Some(w) = &ui_config.tx_log
-            && let Ok(mut lw) = w.lock() {
-                use std::io::Write;
-                if ui_config.log_ts {
-                    let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
-                }
-                let _ = lw.write_all(input.as_bytes());
-                let _ = lw.flush();
+            && let Ok(mut lw) = w.lock()
+        {
+            use std::io::Write;
+            if ui_config.log_ts {
+                let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
             }
+            let _ = lw.write_all(input.as_bytes());
+            let _ = lw.flush();
+        }
     }
 
     // Send line ending
@@ -160,14 +161,15 @@ async fn handle_enter_key(
     if !end.is_empty() {
         write_bytes_async(port, end).await?;
         if let Some(w) = &ui_config.tx_log
-            && let Ok(mut lw) = w.lock() {
-                use std::io::Write;
-                if ui_config.log_ts && input.is_empty() {
-                    let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
-                }
-                let _ = lw.write_all(end);
-                let _ = lw.flush();
+            && let Ok(mut lw) = w.lock()
+        {
+            use std::io::Write;
+            if ui_config.log_ts && input.is_empty() {
+                let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
             }
+            let _ = lw.write_all(end);
+            let _ = lw.flush();
+        }
     }
 
     Ok(())
