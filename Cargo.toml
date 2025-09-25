@@ -2,6 +2,16 @@
 name = "sermonizer"
 version = "0.1.0"
 edition = "2024"
+authors = [
+    "Joel Schulz-Andres <joel@systemscape.de>",
+    "Julian Dickert <julian@systemscape.de>",
+]
+categories = ["command-line-utilities", "development-tools", "embedded"]
+description = "A simple, clean serial monitor with a clean terminal UI for embedded development"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/systemscape/sermonizer"
+keywords = ["serial", "monitor", "embedded", "terminal", "tui"]
 
 [dependencies]
 anyhow = "1.0"

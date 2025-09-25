@@ -21,17 +21,26 @@ Most terminal-based serial monitors are annoying to use - they have clunky inter
 ## Quick Start
 
 ```bash
-# Install
-cargo install sermonizer
+# Install from source (until published to crates.io)
+git clone https://github.com/systemscape/sermonizer.git
+cd sermonizer
+cargo run --release
+
+# Or install locally
+cargo install --path .
 
 # Connect to first available port
 sermonizer
 
 # Or specify port and baud
 sermonizer --port /dev/ttyUSB0 --baud 115200
+# Or with cargo run
+cargo run --release -- --port /dev/ttyUSB0 --baud 115200
 
 # List available ports
 sermonizer --list
+# Or with cargo run
+cargo run --release -- --list
 ```
 
 ## Usage
