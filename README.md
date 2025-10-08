@@ -8,6 +8,8 @@ A simple, clean serial monitor with a clean terminal UI for embedded development
 
 Most terminal-based serial monitors are annoying to use - they have clunky interfaces and no sane defaults. We wanted something that could be quickly spun up to interact with embedded devices during firmware development without any hassle.
 
+![Screenshot](./docs/screenshot.png)
+
 ## Features
 
 - **Smart auto-scroll**: Follows new data, easy to switch to manual scrolling
@@ -21,13 +23,16 @@ Most terminal-based serial monitors are annoying to use - they have clunky inter
 ## Quick Start
 
 ```bash
-# Install from source (until published to crates.io)
+# Install from crates.io
+cargo install sermonizer
+
+# Install from source
 git clone https://github.com/systemscape/sermonizer.git
 cd sermonizer
-cargo run --release
-
-# Or install locally
 cargo install --path .
+
+# Or run locally
+cargo run --release
 
 # Connect to first available port
 sermonizer
