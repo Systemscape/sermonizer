@@ -132,7 +132,11 @@ fn handle_key_event(
             // Ctrl+A to re-enable auto-scroll
             app_state.enable_auto_scroll();
         }
-        KeyCode::Char(c) => {
+        KeyCode::Char(c)
+            if !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+        {
             app_state.update_input(c);
         }
         KeyCode::Enter => {
