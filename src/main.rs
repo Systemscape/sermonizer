@@ -6,7 +6,9 @@ mod ui;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use config::{LineEnding, PortSettings, UiConfig};
+use config::{
+    DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, UiConfig,
+};
 use crossterm::terminal;
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
@@ -35,6 +37,22 @@ struct Args {
     /// Line ending when you press Enter (none|nl|cr|crlf). Default: nl
     #[arg(long, value_enum)]
     line_ending: Option<LineEnding>,
+
+    /// Data bits per character
+    #[arg(long, value_enum, default_value = "8")]
+    data_bits: DataBitsArg,
+
+    /// Parity checking mode
+    #[arg(long, value_enum, default_value = "none")]
+    parity: ParityArg,
+
+    /// Stop bits
+    #[arg(long, value_enum, default_value = "1")]
+    stop_bits: StopBitsArg,
+
+    /// Flow control mode
+    #[arg(long, value_enum, default_value = "none")]
+    flow_control: FlowControlArg,
 
     /// Log received bytes to this file (appends)
     #[arg(long)]
@@ -81,6 +99,13 @@ async fn main() -> Result<()> {
     // Decide on baud
     let baud = args.baud;
     println!("Baud: {baud}");
+    println!(
+        "Framing: {}{}{}, flow control: {}",
+        args.data_bits.label(),
+        args.parity.label(),
+        args.stop_bits.label(),
+        args.flow_control.label()
+    );
 
     // Line ending
     let line_ending = args.line_ending.unwrap_or(LineEnding::Nl);
@@ -101,6 +126,10 @@ async fn main() -> Result<()> {
     let settings = PortSettings {
         name: port_name.clone(),
         baud,
+        data_bits: args.data_bits.into(),
+        parity: args.parity.into(),
+        stop_bits: args.stop_bits.into(),
+        flow_control: args.flow_control.into(),
     };
     let port = settings
         .open()
