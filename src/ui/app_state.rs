@@ -60,6 +60,17 @@ impl AppState {
         }
     }
 
+    /// Push a complete status line (bypasses partial-line assembly).
+    pub fn add_notice(&mut self, message: String) {
+        self.output_lines.push(message);
+        if self.output_lines.len() > 1000 {
+            self.output_lines.drain(..self.output_lines.len() - 1000);
+        }
+        self.auto_scroll_state
+            .select(Some(self.output_lines.len() - 1));
+        self.needs_render = true;
+    }
+
     pub fn scroll_up(&mut self) {
         if self.output_lines.is_empty() {
             return;

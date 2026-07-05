@@ -4,22 +4,21 @@ mod port_discovery;
 mod serial_io;
 mod ui;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use config::{LineEnding, UiConfig};
 use crossterm::terminal;
-use logging::{create_rx_log_writer, create_tx_log_writer};
+use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
 use ratatui::{Terminal, backend::CrosstermBackend};
-use serial_io::{SerialData, SerialReader};
-use serialport::SerialPort;
+use serial_io::{SerialEvent, WriterMsg, spawn_reader, spawn_writer};
 use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex as StdMutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use ui::{UiMessage, run_ui};
 
 /// sermonizer — a tiny, friendly serial monitor
@@ -120,12 +119,17 @@ async fn main() -> Result<()> {
 
     println!("Connected. Type to send; press Ctrl-C to exit.\n");
 
-    // Shared port between reader/writer
-    let port: Arc<Mutex<Box<dyn SerialPort + Send>>> = Arc::new(Mutex::new(port));
-
     // Optional log files
-    let rx_log_writer = create_rx_log_writer(args.log.as_ref())?;
-    let tx_log_writer = create_tx_log_writer(args.tx_log.as_ref())?;
+    let rx_log = args
+        .log
+        .as_deref()
+        .map(|p| LogSink::open(p, "RX", args.log_ts, args.hex))
+        .transpose()?;
+    let tx_log = args
+        .tx_log
+        .as_deref()
+        .map(|p| LogSink::open(p, "TX", args.log_ts, false))
+        .transpose()?;
 
     // Handle Ctrl-C with immediate shutdown
     let running = Arc::new(AtomicBool::new(true));
@@ -147,25 +151,23 @@ async fn main() -> Result<()> {
 
     // Communication channels for UI
     let (ui_tx, ui_rx) = mpsc::unbounded_channel::<UiMessage>();
-    let (serial_tx, serial_rx) = mpsc::unbounded_channel::<SerialData>();
+    let (event_tx, event_rx) = mpsc::unbounded_channel::<SerialEvent>();
+    let (writer_tx, writer_rx) = std::sync::mpsc::channel::<WriterMsg>();
 
     // Store UI sender for Ctrl-C handler
     if let Ok(mut tx_guard) = shutdown_tx.lock() {
         *tx_guard = Some(ui_tx.clone());
     }
 
-    // Spawn reader thread (RX) - now using the optimized SerialReader
-    let serial_reader = SerialReader::new(
-        port.clone(),
-        running.clone(),
-        serial_tx.clone(),
-        args.hex,
-        args.log_ts,
-        rx_log_writer.clone(),
-    );
-    let reader_handle = tokio::spawn(async move {
-        serial_reader.run().await;
-    });
+    // Reader and writer get independent handles so writes never wait on reads
+    let writer_port = port
+        .try_clone()
+        .context("Failed to clone serial port handle")?;
+    let writer_handle = spawn_writer(writer_rx, event_tx.clone(), tx_log);
+    if writer_tx.send(WriterMsg::NewPort(writer_port)).is_err() {
+        bail!("Writer thread terminated unexpectedly");
+    }
+    let reader_handle = spawn_reader(port, running.clone(), event_tx.clone(), rx_log);
 
     // Setup terminal for ratatui
     terminal::enable_raw_mode().context("Failed to enable raw mode")?;
@@ -177,20 +179,21 @@ async fn main() -> Result<()> {
     let ui_config = UiConfig {
         running: running.clone(),
         line_ending,
-        tx_log: tx_log_writer.clone(),
-        log_ts: args.log_ts,
+        writer: writer_tx.clone(),
     };
 
-    let ui_res = run_ui(&mut terminal, ui_rx, serial_rx, port.clone(), ui_config).await;
+    let ui_res = run_ui(&mut terminal, ui_rx, event_rx, ui_config).await;
 
     // Cleanup terminal
     terminal::disable_raw_mode()?;
     crossterm::execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    // Ensure we stop and join reader
+    // Ensure we stop and join the serial threads
     running.store(false, Ordering::SeqCst);
-    let _ = reader_handle.await;
+    drop(writer_tx);
+    let _ = reader_handle.join();
+    let _ = writer_handle.join();
 
     if let Err(e) = ui_res {
         eprintln!("\nError: {e:?}");

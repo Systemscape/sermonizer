@@ -1,6 +1,7 @@
 use clap::ValueEnum;
-use std::io::BufWriter;
-use std::sync::{Arc, Mutex as StdMutex, atomic::AtomicBool};
+use std::sync::{Arc, atomic::AtomicBool};
+
+use crate::serial_io::WriterMsg;
 
 /// Which line ending to send when you press Enter
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -38,6 +39,5 @@ impl LineEnding {
 pub struct UiConfig {
     pub running: Arc<AtomicBool>,
     pub line_ending: LineEnding,
-    pub tx_log: Option<Arc<StdMutex<BufWriter<std::fs::File>>>>,
-    pub log_ts: bool,
+    pub writer: std::sync::mpsc::Sender<WriterMsg>,
 }
