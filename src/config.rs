@@ -63,4 +63,5 @@ pub struct UiConfig {
     pub writer: std::sync::mpsc::Sender<WriterMsg>,
     pub hex: bool,
     pub show_ts: bool,
+    pub port_label: String,
 }

@@ -27,7 +27,12 @@ pub async fn run_ui<B: Backend>(
     mut serial_rx: mpsc::UnboundedReceiver<SerialEvent>,
     ui_config: UiConfig,
 ) -> Result<()> {
-    let mut app_state = AppState::new(ui_config.hex, ui_config.show_ts);
+    let mut app_state = AppState::new(
+        ui_config.hex,
+        ui_config.show_ts,
+        ui_config.port_label.clone(),
+        ui_config.line_ending.describe(),
+    );
     let (mut input_rx, input_handle) = spawn_input_thread(ui_config.running.clone());
 
     loop {
@@ -104,11 +109,13 @@ fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
             app_state.add_notice(format!("[sermonizer] {message}"));
         }
         SerialEvent::Disconnected(reason) => {
+            app_state.set_connected(false);
             app_state.add_notice(format!(
                 "[sermonizer] device disconnected: {reason} — reconnecting (Ctrl+C to quit)"
             ));
         }
         SerialEvent::Reconnected => {
+            app_state.set_connected(true);
             app_state.add_notice("[sermonizer] device reconnected".to_string());
         }
     }

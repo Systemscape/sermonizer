@@ -18,11 +18,20 @@ pub struct AppState {
     pub auto_scroll_state: ListState,
     pub should_quit: bool,
     pub auto_scroll: bool,
+    pub connected: bool,
+    pub unseen_lines: usize, // Lines received while not following the output
+    pub port_label: String,
+    pub line_ending_label: &'static str,
     pub needs_render: bool, // Optimization: only render when needed
 }
 
 impl AppState {
-    pub fn new(hex: bool, timestamps: bool) -> Self {
+    pub fn new(
+        hex: bool,
+        timestamps: bool,
+        port_label: String,
+        line_ending_label: &'static str,
+    ) -> Self {
         Self {
             input_line: String::new(),
             input_cursor: 0,
@@ -36,12 +45,20 @@ impl AppState {
             auto_scroll_state: ListState::default(),
             should_quit: false,
             auto_scroll: true,
+            connected: true,
+            unseen_lines: 0,
+            port_label,
+            line_ending_label,
             needs_render: true,
         }
     }
 
     pub fn add_data(&mut self, bytes: &[u8]) {
-        self.output_lines.extend(self.assembler.push(bytes));
+        let completed = self.assembler.push(bytes);
+        if !self.auto_scroll {
+            self.unseen_lines += completed.len();
+        }
+        self.output_lines.extend(completed);
         self.trim_output();
         // The partial line is displayed too, so any data changes the view
         self.needs_render = true;
@@ -49,8 +66,16 @@ impl AppState {
 
     /// Push a complete status line (bypasses line assembly).
     pub fn add_notice(&mut self, message: String) {
+        if !self.auto_scroll {
+            self.unseen_lines += 1;
+        }
         self.output_lines.push_back(message);
         self.trim_output();
+        self.needs_render = true;
+    }
+
+    pub fn set_connected(&mut self, connected: bool) {
+        self.connected = connected;
         self.needs_render = true;
     }
 
@@ -107,6 +132,7 @@ impl AppState {
 
     pub fn enable_auto_scroll(&mut self) {
         self.auto_scroll = true;
+        self.unseen_lines = 0;
         self.list_state.select(None); // Clear selection when re-enabling auto-scroll
         self.needs_render = true;
     }

@@ -182,6 +182,7 @@ async fn main() -> Result<()> {
         writer: writer_tx.clone(),
         hex: args.hex,
         show_ts: args.log_ts,
+        port_label: format!("{port_name} @ {baud}"),
     };
 
     let ui_res = run_ui(&mut terminal, ui_rx, event_rx, ui_config).await;
