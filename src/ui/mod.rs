@@ -119,18 +119,35 @@ fn handle_key_event(
     app_state: &mut AppState,
     ui_config: &UiConfig,
 ) {
+    // Ctrl+V arms literal mode: the next key is sent as a raw control byte
+    if app_state.pending_literal {
+        app_state.pending_literal = false;
+        app_state.needs_render = true;
+        if let Some(byte) = literal_byte(key) {
+            if ui_config.writer.send(WriterMsg::Data(vec![byte])).is_err() {
+                app_state.add_notice("[sermonizer] writer stopped, input dropped".to_string());
+            } else {
+                app_state.add_notice(format!("[sermonizer] sent control byte 0x{byte:02X}"));
+            }
+        }
+        return;
+    }
+
     match key.code {
         KeyCode::Char(c)
             if key.modifiers.contains(KeyModifiers::CONTROL) && (c == 'c' || c == 'd') =>
         {
             app_state.quit();
         }
-        KeyCode::Esc => {
-            app_state.quit();
+        KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app_state.clear_output();
         }
-        KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            // Ctrl+A to re-enable auto-scroll
-            app_state.enable_auto_scroll();
+        KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app_state.pending_literal = true;
+            app_state.needs_render = true;
+        }
+        KeyCode::Esc => {
+            app_state.clear_input();
         }
         KeyCode::Char(c)
             if !key
@@ -154,11 +171,17 @@ fn handle_key_event(
         KeyCode::Right => {
             app_state.move_cursor_right();
         }
-        KeyCode::Up => {
+        KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
             app_state.scroll_up();
         }
-        KeyCode::Down => {
+        KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
             app_state.scroll_down();
+        }
+        KeyCode::Up => {
+            app_state.history_prev();
+        }
+        KeyCode::Down => {
+            app_state.history_next();
         }
         KeyCode::PageUp => {
             app_state.scroll_page_up(10);
@@ -176,8 +199,24 @@ fn handle_key_event(
     }
 }
 
+/// Map a key pressed after Ctrl+V to the raw byte it should send.
+fn literal_byte(key: crossterm::event::KeyEvent) -> Option<u8> {
+    match key.code {
+        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            let c = c.to_ascii_uppercase();
+            // Ctrl+A..Ctrl+Z map to 0x01..0x1A
+            c.is_ascii_uppercase().then(|| c as u8 - b'A' + 1)
+        }
+        KeyCode::Esc => Some(0x1B),
+        KeyCode::Enter => Some(b'\r'),
+        KeyCode::Tab => Some(b'\t'),
+        _ => None,
+    }
+}
+
 fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
     let input = app_state.clear_input();
+    app_state.push_history(input.clone());
 
     // Send input and line ending as a single write
     let mut bytes = input.into_bytes();

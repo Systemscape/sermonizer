@@ -7,6 +7,10 @@ const MAX_OUTPUT_LINES: usize = 1000;
 pub struct AppState {
     pub input_line: String,
     pub input_cursor: usize, // Cursor position as char index into input_line
+    pub history: Vec<String>,
+    pub history_pos: Option<usize>,
+    pub draft: String,         // Unsent input stashed while browsing history
+    pub pending_literal: bool, // Next key is sent as a raw control byte
     pub output_lines: Vec<String>,
     pub assembler: LineAssembler,
     pub list_state: ListState,
@@ -21,6 +25,10 @@ impl AppState {
         Self {
             input_line: String::new(),
             input_cursor: 0,
+            history: Vec::new(),
+            history_pos: None,
+            draft: String::new(),
+            pending_literal: false,
             output_lines: Vec::with_capacity(MAX_OUTPUT_LINES),
             assembler: LineAssembler::new(hex, timestamps),
             list_state: ListState::default(),
@@ -73,23 +81,20 @@ impl AppState {
         if self.output_lines.is_empty() {
             return;
         }
-        // Disable auto-scroll when manually scrolling
-        self.auto_scroll = false;
 
         let selected = self.list_state.selected().unwrap_or(0);
         if selected < self.output_lines.len() - 1 {
+            self.auto_scroll = false;
             self.list_state.select(Some(selected + 1));
             self.needs_render = true;
+        } else {
+            // Scrolling past the last line resumes following new data
+            self.enable_auto_scroll();
         }
     }
 
     pub fn scroll_to_bottom(&mut self) {
-        if !self.output_lines.is_empty() {
-            // Disable auto-scroll when manually scrolling to bottom
-            self.auto_scroll = false;
-            self.list_state.select(Some(self.output_lines.len() - 1));
-            self.needs_render = true;
-        }
+        self.enable_auto_scroll();
     }
 
     pub fn enable_auto_scroll(&mut self) {
@@ -125,10 +130,63 @@ impl AppState {
         if self.output_lines.is_empty() {
             return;
         }
-        self.auto_scroll = false;
         let current = self.list_state.selected().unwrap_or(0);
         let new_selected = (current + page_size).min(self.output_lines.len().saturating_sub(1));
-        self.list_state.select(Some(new_selected));
+        if new_selected == self.output_lines.len().saturating_sub(1) {
+            self.enable_auto_scroll();
+        } else {
+            self.auto_scroll = false;
+            self.list_state.select(Some(new_selected));
+            self.needs_render = true;
+        }
+    }
+
+    pub fn clear_output(&mut self) {
+        self.output_lines.clear();
+        self.assembler.clear();
+        self.list_state.select(None);
+        self.needs_render = true;
+    }
+
+    pub fn push_history(&mut self, line: String) {
+        if !line.is_empty() && self.history.last() != Some(&line) {
+            self.history.push(line);
+        }
+        self.history_pos = None;
+    }
+
+    pub fn history_prev(&mut self) {
+        if self.history.is_empty() {
+            return;
+        }
+        let pos = match self.history_pos {
+            None => {
+                self.draft = std::mem::take(&mut self.input_line);
+                self.history.len() - 1
+            }
+            Some(p) => p.saturating_sub(1),
+        };
+        self.history_pos = Some(pos);
+        self.set_input(self.history[pos].clone());
+    }
+
+    pub fn history_next(&mut self) {
+        let Some(pos) = self.history_pos else {
+            return;
+        };
+        if pos + 1 < self.history.len() {
+            self.history_pos = Some(pos + 1);
+            self.set_input(self.history[pos + 1].clone());
+        } else {
+            self.history_pos = None;
+            let draft = std::mem::take(&mut self.draft);
+            self.set_input(draft);
+        }
+    }
+
+    fn set_input(&mut self, text: String) {
+        self.input_cursor = text.chars().count();
+        self.input_line = text;
         self.needs_render = true;
     }
 
