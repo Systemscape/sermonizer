@@ -6,6 +6,7 @@ const MAX_OUTPUT_LINES: usize = 1000;
 
 pub struct AppState {
     pub input_line: String,
+    pub input_cursor: usize, // Cursor position as char index into input_line
     pub output_lines: Vec<String>,
     pub assembler: LineAssembler,
     pub list_state: ListState,
@@ -19,6 +20,7 @@ impl AppState {
     pub fn new(hex: bool, timestamps: bool) -> Self {
         Self {
             input_line: String::new(),
+            input_cursor: 0,
             output_lines: Vec::with_capacity(MAX_OUTPUT_LINES),
             assembler: LineAssembler::new(hex, timestamps),
             list_state: ListState::default(),
@@ -131,22 +133,59 @@ impl AppState {
     }
 
     pub fn update_input(&mut self, c: char) {
-        self.input_line.push(c);
+        let byte_idx = self.input_byte_index(self.input_cursor);
+        self.input_line.insert(byte_idx, c);
+        self.input_cursor += 1;
         self.needs_render = true;
     }
 
     pub fn backspace_input(&mut self) {
-        if self.input_line.pop().is_some() {
+        if self.input_cursor == 0 {
+            return;
+        }
+        self.input_cursor -= 1;
+        let byte_idx = self.input_byte_index(self.input_cursor);
+        self.input_line.remove(byte_idx);
+        self.needs_render = true;
+    }
+
+    pub fn delete_input(&mut self) {
+        let byte_idx = self.input_byte_index(self.input_cursor);
+        if byte_idx < self.input_line.len() {
+            self.input_line.remove(byte_idx);
+            self.needs_render = true;
+        }
+    }
+
+    pub fn move_cursor_left(&mut self) {
+        if self.input_cursor > 0 {
+            self.input_cursor -= 1;
+            self.needs_render = true;
+        }
+    }
+
+    pub fn move_cursor_right(&mut self) {
+        if self.input_cursor < self.input_line.chars().count() {
+            self.input_cursor += 1;
             self.needs_render = true;
         }
     }
 
     pub fn clear_input(&mut self) -> String {
+        self.input_cursor = 0;
         let input = std::mem::take(&mut self.input_line);
         if !input.is_empty() {
             self.needs_render = true;
         }
         input
+    }
+
+    fn input_byte_index(&self, char_idx: usize) -> usize {
+        self.input_line
+            .char_indices()
+            .nth(char_idx)
+            .map(|(i, _)| i)
+            .unwrap_or(self.input_line.len())
     }
 
     pub fn quit(&mut self) {

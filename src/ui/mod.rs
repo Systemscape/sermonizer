@@ -145,6 +145,15 @@ fn handle_key_event(
         KeyCode::Backspace => {
             app_state.backspace_input();
         }
+        KeyCode::Delete => {
+            app_state.delete_input();
+        }
+        KeyCode::Left => {
+            app_state.move_cursor_left();
+        }
+        KeyCode::Right => {
+            app_state.move_cursor_right();
+        }
         KeyCode::Up => {
             app_state.scroll_up();
         }
