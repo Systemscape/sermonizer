@@ -42,6 +42,18 @@ pub fn print_ports(ports: &[SerialPortInfo]) {
 }
 
 pub fn choose_port_interactive(ports: &[SerialPortInfo]) -> Result<String> {
+    // A sole USB port is almost certainly the target device; skip the prompt
+    // even when onboard UARTs are also present (USB ports are sorted first)
+    let usb_count = ports
+        .iter()
+        .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(_)))
+        .count();
+    if usb_count == 1 {
+        let name = ports[0].port_name.clone();
+        println!("Auto-selected sole USB port: {name}");
+        return Ok(name);
+    }
+
     match ports.len() {
         0 => bail!("No serial ports detected. Plug your device in and try again."),
         1 => {
