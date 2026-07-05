@@ -3,13 +3,11 @@ use serialport::{SerialPortInfo, SerialPortType};
 use std::io::{self, Write};
 
 pub fn get_available_ports() -> Result<Vec<SerialPortInfo>> {
-    let all_ports = serialport::available_ports().context("Failed to list serial ports")?;
+    let mut ports = serialport::available_ports().context("Failed to list serial ports")?;
 
-    // Filter for realistic ports (USB ports with VID/PID)
-    let ports: Vec<_> = all_ports
-        .into_iter()
-        .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(_)))
-        .collect();
+    // USB ports first: they are the most likely embedded targets, but onboard
+    // UARTs, PCI and Bluetooth ports must stay selectable too
+    ports.sort_by_key(|p| !matches!(&p.port_type, SerialPortType::UsbPort(_)));
 
     Ok(ports)
 }
