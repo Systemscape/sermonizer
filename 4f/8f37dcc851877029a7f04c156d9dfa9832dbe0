@@ -1,0 +1,21 @@
+src/port_discovery.rs
+  s_0314d8602769f1::t_46e5027c86380b 45-56
+README.md
+  s_0314d8602769f1::t_3badec976b52cd 58-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "4f8f37dcc851877029a7f04c156d9dfa9832dbe0",
+  "prompts": {},
+  "sessions": {
+    "s_0314d8602769f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5d9c1e2d-e5ab-4355-a29e-e730464cdcf4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
