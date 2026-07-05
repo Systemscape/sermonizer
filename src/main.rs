@@ -13,7 +13,6 @@ use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use serial_io::{SerialData, SerialReader};
 use serialport::SerialPort;
-use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex as StdMutex,
@@ -110,16 +109,14 @@ async fn main() -> Result<()> {
     }
 
     // Open port
-    let mut port = serialport::new(&port_name, baud)
+    let port = serialport::new(&port_name, baud)
         .timeout(Duration::from_millis(100))
         .open()
         .with_context(|| format!("Failed to open serial port '{port_name}'"))?;
 
-    // Clear any stale data from the serial buffer
-    let mut discard_buf = [0u8; 1024];
-    while port.read(&mut discard_buf).is_ok() {
-        // Keep reading until timeout to flush buffer
-    }
+    // Clear any stale data from the serial buffers
+    port.clear(serialport::ClearBuffer::All)
+        .context("Failed to clear serial buffers")?;
 
     println!("Connected. Type to send; press Ctrl-C to exit.\n");
 
