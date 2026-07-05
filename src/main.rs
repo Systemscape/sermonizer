@@ -28,9 +28,9 @@ struct Args {
     #[arg(short, long)]
     port: Option<String>,
 
-    /// Baud rate (default 115200)
-    #[arg(short = 'b', long)]
-    baud: Option<u32>,
+    /// Baud rate
+    #[arg(short = 'b', long, default_value_t = 115_200)]
+    baud: u32,
 
     /// Line ending when you press Enter (none|nl|cr|crlf). Default: nl
     #[arg(long, value_enum)]
@@ -79,17 +79,8 @@ async fn main() -> Result<()> {
     };
 
     // Decide on baud
-    let baud = match args.baud {
-        Some(b) => {
-            println!("Baud: {b}");
-            b
-        }
-        None => {
-            let b = 115_200u32;
-            println!("Baud: {b} (default)");
-            b
-        }
-    };
+    let baud = args.baud;
+    println!("Baud: {baud}");
 
     // Line ending
     let line_ending = args.line_ending.unwrap_or(LineEnding::Nl);
