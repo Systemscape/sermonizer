@@ -16,11 +16,16 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
         .split(f.area());
 
     // Serial monitor output - optimize by avoiding allocations where possible
-    let output_items: Vec<ListItem> = app_state
+    let mut output_items: Vec<ListItem> = app_state
         .output_lines
         .iter()
         .map(|line| ListItem::new(line.as_str()))
         .collect();
+
+    // Show the line still being received below the completed output
+    if let Some(partial) = app_state.assembler.partial_display() {
+        output_items.push(ListItem::new(partial));
+    }
 
     let title = if app_state.auto_scroll {
         "Serial Monitor (Auto-scroll ON - ↑↓/PgUp/PgDn to scroll, Ctrl+A to re-enable auto-scroll)"
@@ -28,6 +33,7 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
         "Serial Monitor (Auto-scroll OFF - ↑↓/PgUp/PgDn to scroll, Ctrl+A to re-enable auto-scroll)"
     };
 
+    let item_count = output_items.len();
     let output_list = List::new(output_items)
         .block(Block::default().borders(Borders::ALL).title(title))
         .style(Style::default().fg(Color::White))
@@ -35,7 +41,10 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
 
     // Handle auto-scrolling vs manual scrolling
     if app_state.auto_scroll {
-        // Use the persistent auto-scroll state that stays positioned at bottom
+        // Keep the selection pinned to the bottom so the list follows new data
+        app_state
+            .auto_scroll_state
+            .select(item_count.checked_sub(1));
         f.render_stateful_widget(output_list, chunks[0], &mut app_state.auto_scroll_state);
     } else {
         // Manual scrolling mode - use the user's scroll position

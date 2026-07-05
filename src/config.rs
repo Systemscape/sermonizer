@@ -61,4 +61,6 @@ pub struct UiConfig {
     pub running: Arc<AtomicBool>,
     pub line_ending: LineEnding,
     pub writer: std::sync::mpsc::Sender<WriterMsg>,
+    pub hex: bool,
+    pub show_ts: bool,
 }

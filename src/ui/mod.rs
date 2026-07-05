@@ -1,4 +1,5 @@
 pub mod app_state;
+pub mod line_assembler;
 pub mod rendering;
 
 pub use app_state::AppState;
@@ -25,7 +26,7 @@ pub async fn run_ui<B: Backend>(
     mut serial_rx: mpsc::UnboundedReceiver<SerialEvent>,
     ui_config: UiConfig,
 ) -> Result<()> {
-    let mut app_state = AppState::new();
+    let mut app_state = AppState::new(ui_config.hex, ui_config.show_ts);
 
     while ui_config.running.load(Ordering::SeqCst) && !app_state.should_quit {
         tokio::select! {
@@ -78,7 +79,7 @@ pub async fn run_ui<B: Backend>(
 fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
     match event {
         SerialEvent::Data(bytes) => {
-            app_state.add_output(String::from_utf8_lossy(&bytes).into_owned());
+            app_state.add_data(&bytes);
         }
         SerialEvent::Error(message) => {
             app_state.add_notice(format!("[sermonizer] {message}"));

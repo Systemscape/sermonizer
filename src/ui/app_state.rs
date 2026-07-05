@@ -1,9 +1,13 @@
 use ratatui::widgets::ListState;
 
+use super::line_assembler::LineAssembler;
+
+const MAX_OUTPUT_LINES: usize = 1000;
+
 pub struct AppState {
     pub input_line: String,
     pub output_lines: Vec<String>,
-    pub partial_line: String,
+    pub assembler: LineAssembler,
     pub list_state: ListState,
     pub auto_scroll_state: ListState,
     pub should_quit: bool,
@@ -12,11 +16,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(hex: bool, timestamps: bool) -> Self {
         Self {
             input_line: String::new(),
-            output_lines: Vec::with_capacity(1000), // Pre-allocate capacity
-            partial_line: String::with_capacity(256), // Pre-allocate for partial lines
+            output_lines: Vec::with_capacity(MAX_OUTPUT_LINES),
+            assembler: LineAssembler::new(hex, timestamps),
             list_state: ListState::default(),
             auto_scroll_state: ListState::default(),
             should_quit: false,
@@ -25,50 +29,25 @@ impl AppState {
         }
     }
 
-    pub fn add_output(&mut self, data: String) {
-        // Append to partial line buffer
-        self.partial_line.push_str(&data);
-
-        // Check if we have complete lines (ending with \n or \r\n)
-        let mut has_new_lines = false;
-        while let Some(newline_pos) = self.partial_line.find('\n') {
-            // Extract complete line (without the newline)
-            let complete_line = self.partial_line[..newline_pos]
-                .trim_end_matches('\r')
-                .to_string();
-            self.output_lines.push(complete_line);
-            has_new_lines = true;
-
-            // Remove processed part from partial_line
-            self.partial_line.drain(..=newline_pos);
-        }
-
-        // Only trigger expensive operations if we have new complete lines
-        if has_new_lines {
-            // Keep only the last 1000 lines to prevent memory issues
-            if self.output_lines.len() > 1000 {
-                self.output_lines.drain(..self.output_lines.len() - 1000);
-            }
-
-            // Update auto-scroll state to point to the new bottom
-            if !self.output_lines.is_empty() {
-                self.auto_scroll_state
-                    .select(Some(self.output_lines.len() - 1));
-            }
-
-            self.needs_render = true;
-        }
+    pub fn add_data(&mut self, bytes: &[u8]) {
+        self.output_lines.extend(self.assembler.push(bytes));
+        self.trim_output();
+        // The partial line is displayed too, so any data changes the view
+        self.needs_render = true;
     }
 
-    /// Push a complete status line (bypasses partial-line assembly).
+    /// Push a complete status line (bypasses line assembly).
     pub fn add_notice(&mut self, message: String) {
         self.output_lines.push(message);
-        if self.output_lines.len() > 1000 {
-            self.output_lines.drain(..self.output_lines.len() - 1000);
-        }
-        self.auto_scroll_state
-            .select(Some(self.output_lines.len() - 1));
+        self.trim_output();
         self.needs_render = true;
+    }
+
+    fn trim_output(&mut self) {
+        if self.output_lines.len() > MAX_OUTPUT_LINES {
+            self.output_lines
+                .drain(..self.output_lines.len() - MAX_OUTPUT_LINES);
+        }
     }
 
     pub fn scroll_up(&mut self) {
