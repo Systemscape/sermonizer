@@ -14,11 +14,13 @@ pub struct PortSettings {
     pub parity: Parity,
     pub stop_bits: StopBits,
     pub flow_control: FlowControl,
+    pub dtr: Option<bool>,
+    pub rts: Option<bool>,
 }
 
 impl PortSettings {
     pub fn open(&self) -> serialport::Result<Box<dyn SerialPort>> {
-        let port = serialport::new(&self.name, self.baud)
+        let mut port = serialport::new(&self.name, self.baud)
             .data_bits(self.data_bits)
             .parity(self.parity)
             .stop_bits(self.stop_bits)
@@ -26,9 +28,31 @@ impl PortSettings {
             .timeout(Duration::from_millis(100))
             .open()?;
 
+        // Control lines matter for boards that wire DTR/RTS to reset or boot
+        // pins (e.g. ESP32, Arduino); leave them untouched unless requested
+        if let Some(dtr) = self.dtr {
+            port.write_data_terminal_ready(dtr)?;
+        }
+        if let Some(rts) = self.rts {
+            port.write_request_to_send(rts)?;
+        }
+
         // Drop any stale data buffered by the OS
         port.clear(ClearBuffer::All)?;
         Ok(port)
+    }
+}
+
+/// Explicit level for a control line
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum Toggle {
+    On,
+    Off,
+}
+
+impl Toggle {
+    pub fn as_bool(self) -> bool {
+        matches!(self, Toggle::On)
     }
 }
 

@@ -7,7 +7,7 @@ mod ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 use config::{
-    DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, UiConfig,
+    DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, Toggle, UiConfig,
 };
 use crossterm::terminal;
 use logging::LogSink;
@@ -53,6 +53,14 @@ struct Args {
     /// Flow control mode
     #[arg(long, value_enum, default_value = "none")]
     flow_control: FlowControlArg,
+
+    /// Set the DTR line after opening (left untouched if omitted)
+    #[arg(long, value_enum)]
+    dtr: Option<Toggle>,
+
+    /// Set the RTS line after opening (left untouched if omitted)
+    #[arg(long, value_enum)]
+    rts: Option<Toggle>,
 
     /// Log received bytes to this file (appends)
     #[arg(long)]
@@ -130,6 +138,8 @@ async fn main() -> Result<()> {
         parity: args.parity.into(),
         stop_bits: args.stop_bits.into(),
         flow_control: args.flow_control.into(),
+        dtr: args.dtr.map(Toggle::as_bool),
+        rts: args.rts.map(Toggle::as_bool),
     };
     let port = settings
         .open()
