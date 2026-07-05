@@ -1,4 +1,5 @@
 use ratatui::widgets::ListState;
+use std::collections::VecDeque;
 
 use super::line_assembler::LineAssembler;
 
@@ -11,7 +12,7 @@ pub struct AppState {
     pub history_pos: Option<usize>,
     pub draft: String,         // Unsent input stashed while browsing history
     pub pending_literal: bool, // Next key is sent as a raw control byte
-    pub output_lines: Vec<String>,
+    pub output_lines: VecDeque<String>,
     pub assembler: LineAssembler,
     pub list_state: ListState,
     pub auto_scroll_state: ListState,
@@ -29,7 +30,7 @@ impl AppState {
             history_pos: None,
             draft: String::new(),
             pending_literal: false,
-            output_lines: Vec::with_capacity(MAX_OUTPUT_LINES),
+            output_lines: VecDeque::with_capacity(MAX_OUTPUT_LINES),
             assembler: LineAssembler::new(hex, timestamps),
             list_state: ListState::default(),
             auto_scroll_state: ListState::default(),
@@ -48,15 +49,22 @@ impl AppState {
 
     /// Push a complete status line (bypasses line assembly).
     pub fn add_notice(&mut self, message: String) {
-        self.output_lines.push(message);
+        self.output_lines.push_back(message);
         self.trim_output();
         self.needs_render = true;
     }
 
     fn trim_output(&mut self) {
-        if self.output_lines.len() > MAX_OUTPUT_LINES {
-            self.output_lines
-                .drain(..self.output_lines.len() - MAX_OUTPUT_LINES);
+        let overflow = self.output_lines.len().saturating_sub(MAX_OUTPUT_LINES);
+        if overflow == 0 {
+            return;
+        }
+        self.output_lines.drain(..overflow);
+        // Keep the manual scroll position anchored to the same line while
+        // old lines are pruned from the front
+        if let Some(selected) = self.list_state.selected() {
+            self.list_state
+                .select(Some(selected.saturating_sub(overflow)));
         }
     }
 
