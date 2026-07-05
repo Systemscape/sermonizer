@@ -1,0 +1,32 @@
+src/ui/rendering.rs
+  s_0314d8602769f1::t_adb0cf41322300 6,17,34-40,44-45,52-53,70,80-118
+  s_0314d8602769f1::t_0e963509d7436f 119-122
+src/ui/mod.rs
+  s_0314d8602769f1::t_ac4c6757e33a56 30-35
+  s_0314d8602769f1::t_e4c32888c8c177 112,118
+src/config.rs
+  s_0314d8602769f1::t_7f26f4ae818082 66
+src/main.rs
+  s_0314d8602769f1::t_76d243a23f5d08 185
+src/ui/app_state.rs
+  s_0314d8602769f1::t_8985bc5d873fc6 48-51,57-61,69-71,77-78
+  s_0314d8602769f1::t_6301c11dfc339d 21-24,29-34
+  s_0314d8602769f1::t_5ee4ab64e3aeb0 135
+  s_0314d8602769f1::t_271d4c8a348eff 79-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "429a3cddb3df33b95bdc3a71485e00a3afa64d40",
+  "prompts": {},
+  "sessions": {
+    "s_0314d8602769f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5d9c1e2d-e5ab-4355-a29e-e730464cdcf4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
