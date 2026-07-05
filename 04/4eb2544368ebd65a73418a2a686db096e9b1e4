@@ -1,0 +1,35 @@
+src/ui/line_assembler.rs
+  s_0314d8602769f1::t_03d354edd5097a 1-173
+src/ui/rendering.rs
+  s_0314d8602769f1::t_161d3c655baa1c 36,44-47
+  s_0314d8602769f1::t_8bd2ad88a6dde8 19,25-28
+  s_0314d8602769f1::t_ae61d366ae80b1 29
+src/ui/app_state.rs
+  s_0314d8602769f1::t_99fe8b7312eb30 3-6,10,19,22-23,32-36,39,42,46-50
+  s_0314d8602769f1::t_e36df11decda9b 51-52
+src/ui/mod.rs
+  s_0314d8602769f1::t_01282c753b14f7 2
+  s_0314d8602769f1::t_750c828c46ac5c 29
+  s_0314d8602769f1::t_1172ece958eed9 82
+src/config.rs
+  s_0314d8602769f1::t_a86a060d5be6c6 64-65
+src/main.rs
+  s_0314d8602769f1::t_712fbd42942fe4 183-184
+  s_0314d8602769f1::t_e1255489286720 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "044eb2544368ebd65a73418a2a686db096e9b1e4",
+  "prompts": {},
+  "sessions": {
+    "s_0314d8602769f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5d9c1e2d-e5ab-4355-a29e-e730464cdcf4",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
