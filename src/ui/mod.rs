@@ -8,7 +8,8 @@ pub use rendering::draw_ui;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{Terminal, backend::Backend};
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -27,53 +28,71 @@ pub async fn run_ui<B: Backend>(
     ui_config: UiConfig,
 ) -> Result<()> {
     let mut app_state = AppState::new(ui_config.hex, ui_config.show_ts);
+    let (mut input_rx, input_handle) = spawn_input_thread(ui_config.running.clone());
 
-    while ui_config.running.load(Ordering::SeqCst) && !app_state.should_quit {
-        tokio::select! {
-            // UI messages (like quit from Ctrl-C)
-            msg = ui_rx.recv() => {
-                if let Some(msg) = msg {
-                    match msg {
-                        UiMessage::Quit => {
-                            app_state.quit();
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Serial events
-            event = serial_rx.recv() => {
-                if let Some(event) = event {
-                    handle_serial_event(event, &mut app_state);
-                }
-            }
-
-            // Keyboard input - async wrapper for crossterm events
-            key_result = async {
-                if event::poll(Duration::from_millis(0)).unwrap_or(false) {
-                    event::read()
-                } else {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                    Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "no input"))
-                }
-            } => {
-                if let Ok(Event::Key(k)) = key_result
-                    && k.kind == KeyEventKind::Press {
-                    handle_key_event(k, &mut app_state, &ui_config);
-                }
-            }
-        }
-
+    loop {
         // Only render if state changed - major performance optimization
         if app_state.needs_render {
             terminal.draw(|f| draw_ui(f, &mut app_state))?;
             app_state.mark_rendered();
         }
+
+        if !ui_config.running.load(Ordering::SeqCst) || app_state.should_quit {
+            break;
+        }
+
+        tokio::select! {
+            // UI messages (like quit from Ctrl-C)
+            msg = ui_rx.recv() => {
+                match msg {
+                    Some(UiMessage::Quit) | None => app_state.quit(),
+                }
+            }
+
+            // Serial events
+            event = serial_rx.recv() => {
+                match event {
+                    Some(event) => handle_serial_event(event, &mut app_state),
+                    None => app_state.quit(),
+                }
+            }
+
+            // Terminal events from the blocking input thread
+            input = input_rx.recv() => {
+                match input {
+                    Some(Event::Key(k)) if k.kind == KeyEventKind::Press => {
+                        handle_key_event(k, &mut app_state, &ui_config);
+                    }
+                    Some(Event::Resize(_, _)) => app_state.needs_render = true,
+                    Some(_) => {}
+                    None => app_state.quit(),
+                }
+            }
+        }
     }
 
     ui_config.running.store(false, Ordering::SeqCst);
+    let _ = input_handle.join();
     Ok(())
+}
+
+/// Reads terminal events on a dedicated thread so the UI loop can await them
+/// instead of busy-polling.
+fn spawn_input_thread(
+    running: Arc<AtomicBool>,
+) -> (mpsc::UnboundedReceiver<Event>, std::thread::JoinHandle<()>) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let handle = std::thread::spawn(move || {
+        while running.load(Ordering::SeqCst) {
+            if event::poll(Duration::from_millis(100)).unwrap_or(false)
+                && let Ok(ev) = event::read()
+                && tx.send(ev).is_err()
+            {
+                break;
+            }
+        }
+    });
+    (rx, handle)
 }
 
 fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
