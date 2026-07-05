@@ -2,11 +2,15 @@ use serialport::SerialPort;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
+use crate::config::PortSettings;
 use crate::logging::LogSink;
 
 const READ_BUF_SIZE: usize = 4096;
+const RECONNECT_POLL: Duration = Duration::from_millis(100);
+const RECONNECT_RETRY_TICKS: u32 = 5;
 
 /// Events sent from the serial threads to the UI.
 #[derive(Debug, Clone)]
@@ -14,6 +18,7 @@ pub enum SerialEvent {
     Data(Vec<u8>),
     Error(String),
     Disconnected(String),
+    Reconnected,
 }
 
 /// Messages consumed by the writer thread.
@@ -22,9 +27,62 @@ pub enum WriterMsg {
     NewPort(Box<dyn SerialPort>),
 }
 
+/// Supervises the reader thread: when the device disappears it keeps trying
+/// to reopen the port and resumes reading once it comes back.
+pub fn spawn_supervisor(
+    first_port: Box<dyn SerialPort>,
+    settings: PortSettings,
+    running: Arc<AtomicBool>,
+    events: mpsc::UnboundedSender<SerialEvent>,
+    writer: std::sync::mpsc::Sender<WriterMsg>,
+    mut rx_log: Option<LogSink>,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut port = Some(first_port);
+        while running.load(Ordering::SeqCst) {
+            let Some(p) = port.take() else { break };
+
+            // Hand the writer its own handle to the fresh connection
+            match p.try_clone() {
+                Ok(w) => {
+                    if writer.send(WriterMsg::NewPort(w)).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    let _ = events.send(SerialEvent::Error(format!(
+                        "cannot clone port handle, sending disabled: {e}"
+                    )));
+                }
+            }
+
+            let reader = spawn_reader(p, running.clone(), events.clone(), rx_log.take());
+            rx_log = reader.join().unwrap_or(None);
+            if !running.load(Ordering::SeqCst) {
+                break;
+            }
+
+            // Reader exited while we are still running: the device is gone.
+            // Poll until the port can be reopened.
+            let mut ticks = 0u32;
+            while running.load(Ordering::SeqCst) && port.is_none() {
+                std::thread::sleep(RECONNECT_POLL);
+                ticks += 1;
+                if !ticks.is_multiple_of(RECONNECT_RETRY_TICKS) {
+                    continue;
+                }
+                if let Ok(p) = settings.open() {
+                    let _ = events.send(SerialEvent::Reconnected);
+                    port = Some(p);
+                }
+            }
+        }
+    })
+}
+
 /// Reads from the port until shutdown or a fatal error. Returns the RX log
 /// sink so a future connection can keep appending to it.
-pub fn spawn_reader(
+fn spawn_reader(
     mut port: Box<dyn SerialPort>,
     running: Arc<AtomicBool>,
     events: mpsc::UnboundedSender<SerialEvent>,

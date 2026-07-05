@@ -4,20 +4,19 @@ mod port_discovery;
 mod serial_io;
 mod ui;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::Parser;
-use config::{LineEnding, UiConfig};
+use config::{LineEnding, PortSettings, UiConfig};
 use crossterm::terminal;
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
 use ratatui::{Terminal, backend::CrosstermBackend};
-use serial_io::{SerialEvent, WriterMsg, spawn_reader, spawn_writer};
+use serial_io::{SerialEvent, WriterMsg, spawn_supervisor, spawn_writer};
 use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex as StdMutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
 use tokio::sync::mpsc;
 use ui::{UiMessage, run_ui};
 
@@ -108,14 +107,13 @@ async fn main() -> Result<()> {
     }
 
     // Open port
-    let port = serialport::new(&port_name, baud)
-        .timeout(Duration::from_millis(100))
+    let settings = PortSettings {
+        name: port_name.clone(),
+        baud,
+    };
+    let port = settings
         .open()
         .with_context(|| format!("Failed to open serial port '{port_name}'"))?;
-
-    // Clear any stale data from the serial buffers
-    port.clear(serialport::ClearBuffer::All)
-        .context("Failed to clear serial buffers")?;
 
     println!("Connected. Type to send; press Ctrl-C to exit.\n");
 
@@ -159,15 +157,17 @@ async fn main() -> Result<()> {
         *tx_guard = Some(ui_tx.clone());
     }
 
-    // Reader and writer get independent handles so writes never wait on reads
-    let writer_port = port
-        .try_clone()
-        .context("Failed to clone serial port handle")?;
+    // Reader and writer get independent handles so writes never wait on reads;
+    // the supervisor respawns the reader after a disconnect
     let writer_handle = spawn_writer(writer_rx, event_tx.clone(), tx_log);
-    if writer_tx.send(WriterMsg::NewPort(writer_port)).is_err() {
-        bail!("Writer thread terminated unexpectedly");
-    }
-    let reader_handle = spawn_reader(port, running.clone(), event_tx.clone(), rx_log);
+    let supervisor_handle = spawn_supervisor(
+        port,
+        settings,
+        running.clone(),
+        event_tx.clone(),
+        writer_tx.clone(),
+        rx_log,
+    );
 
     // Setup terminal for ratatui
     terminal::enable_raw_mode().context("Failed to enable raw mode")?;
@@ -192,7 +192,7 @@ async fn main() -> Result<()> {
     // Ensure we stop and join the serial threads
     running.store(false, Ordering::SeqCst);
     drop(writer_tx);
-    let _ = reader_handle.join();
+    let _ = supervisor_handle.join();
     let _ = writer_handle.join();
 
     if let Err(e) = ui_res {
