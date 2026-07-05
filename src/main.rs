@@ -142,7 +142,7 @@ async fn main() -> Result<()> {
                 let _ = tx.send(UiMessage::Quit);
             }
         })
-        .expect("Failed to set Ctrl-C handler");
+        .context("Failed to set Ctrl-C handler")?;
     }
 
     // Communication channels for UI
@@ -150,7 +150,9 @@ async fn main() -> Result<()> {
     let (serial_tx, serial_rx) = mpsc::unbounded_channel::<SerialData>();
 
     // Store UI sender for Ctrl-C handler
-    *shutdown_tx.lock().unwrap() = Some(ui_tx.clone());
+    if let Ok(mut tx_guard) = shutdown_tx.lock() {
+        *tx_guard = Some(ui_tx.clone());
+    }
 
     // Spawn reader thread (RX) - now using the optimized SerialReader
     let serial_reader = SerialReader::new(
