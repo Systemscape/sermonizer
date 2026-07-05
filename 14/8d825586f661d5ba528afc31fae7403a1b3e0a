@@ -1,0 +1,31 @@
+src/main.rs
+  s_0314d8602769f1::t_e09efc4112bfec 110-114
+  s_0314d8602769f1::t_9b3836672c1c87 160-161,163-170
+  s_0314d8602769f1::t_b7d38cd8d42dec 7,9,14
+  s_0314d8602769f1::t_82d82702b9ec9a 195
+src/config.rs
+  s_0314d8602769f1::t_7debb3581fd395 26
+  s_0314d8602769f1::t_9837378f4d3b25 2,4,8-25
+src/ui/mod.rs
+  s_0314d8602769f1::t_7f6ec33f3141c8 87-92
+src/serial_io.rs
+  s_0314d8602769f1::t_76d50fee42d817 30-70,72-82,85
+  s_0314d8602769f1::t_f2f13f36bebec3 5,8,12-13,21
+  s_0314d8602769f1::t_a0f2c73ab6c81a 71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "148d825586f661d5ba528afc31fae7403a1b3e0a",
+  "prompts": {},
+  "sessions": {
+    "s_0314d8602769f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5d9c1e2d-e5ab-4355-a29e-e730464cdcf4",
+        "model": "claude-fable-5"
+      },
+      "human_author": null
+    }
+  }
+}
