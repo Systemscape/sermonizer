@@ -23,3 +23,8 @@ serialport = "4.3"
 tokio = { version = "1.0", features = ["rt-multi-thread", "sync", "time", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 unicode-width = "0.2"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
