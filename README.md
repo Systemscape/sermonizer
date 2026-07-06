@@ -55,14 +55,20 @@ cargo run --release -- --list
 sermonizer [OPTIONS]
 
 Options:
-  -p, --port <PORT>       Serial port path
-  -b, --baud <BAUD>       Baud rate (default: 115200)
-      --line-ending <E>   Line ending: none|nl|cr|crlf (default: nl)
-      --hex               Display data as hex
-      --log <FILE>        Log received data
-      --tx-log <FILE>     Log transmitted data
-      --log-ts            Add timestamps to logs
-      --list              List available ports
+  -p, --port <PORT>        Serial port path
+  -b, --baud <BAUD>        Baud rate (default: 115200)
+      --line-ending <E>    Line ending: none|nl|cr|crlf (default: nl)
+      --data-bits <N>      Data bits: 5|6|7|8 (default: 8)
+      --parity <P>         Parity: none|odd|even (default: none)
+      --stop-bits <N>      Stop bits: 1|2 (default: 1)
+      --flow-control <F>   Flow control: none|software|hardware (default: none)
+      --dtr <on|off>       Set the DTR line after opening
+      --rts <on|off>       Set the RTS line after opening
+      --hex                Display data as hex
+      --log <FILE>         Log received data
+      --tx-log <FILE>      Log transmitted data
+      --log-ts             Add timestamps to logs and display
+      --list               List available ports
 ```
 
 ## Controls
