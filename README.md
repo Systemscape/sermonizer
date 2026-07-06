@@ -13,7 +13,8 @@ Most terminal-based serial monitors are annoying to use - they have clunky inter
 ## Features
 
 - **Smart auto-scroll**: Follows new data, easy to switch to manual scrolling
-- **Clean TUI**: Split view with input at bottom, output on top
+- **Auto-reconnect**: Keeps watching the port and resumes when the device comes back
+- **Clean TUI**: Split view with input at bottom, output on top, status bar with connection state
 - **Auto-detect ports**: Just run `sermonizer` and it finds your device
 - **Sane defaults**: 115200 baud, 8 data bits, no parity, 1 stop bit
 - **Hex mode**: View binary data as hex bytes
@@ -67,9 +68,13 @@ Options:
 ## Controls
 
 - **Type and press Enter**: Send data to device
-- **↑↓ / Page Up/Down**: Scroll through output
-- **Ctrl+A**: Re-enable auto-scroll
-- **Ctrl+C / Esc**: Exit
+- **↑↓**: Browse send history
+- **Shift+↑↓ / Page Up/Down**: Scroll through output
+- **Home / End**: Jump to top / bottom (End resumes auto-scroll)
+- **Ctrl+L**: Clear output
+- **Ctrl+V, then a key**: Send that key as a raw control byte (e.g. Ctrl+V Ctrl+C sends 0x03)
+- **Esc**: Clear input line
+- **Ctrl+C / Ctrl+D**: Exit
 
 ## Why?
 

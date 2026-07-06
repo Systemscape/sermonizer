@@ -44,7 +44,7 @@ struct Args {
     #[arg(long)]
     tx_log: Option<PathBuf>,
 
-    /// Prepend timestamps to logged chunks (and hex output)
+    /// Prepend timestamps to logged and displayed lines
     #[arg(long = "log-ts")]
     log_ts: bool,
 
@@ -180,6 +180,9 @@ async fn main() -> Result<()> {
         running: running.clone(),
         line_ending,
         writer: writer_tx.clone(),
+        hex: args.hex,
+        show_ts: args.log_ts,
+        port_label: format!("{port_name} @ {baud}"),
     };
 
     let ui_res = run_ui(&mut terminal, ui_rx, event_rx, ui_config).await;
