@@ -7,14 +7,12 @@ pub use rendering::draw_ui;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{Terminal, backend::Backend};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::config::UiConfig;
-use crate::serial_io::{SerialData, write_bytes_async};
-use chrono::Utc;
+use crate::serial_io::{SerialEvent, WriterMsg};
 
 #[derive(Debug)]
 pub enum UiMessage {
@@ -24,12 +22,10 @@ pub enum UiMessage {
 pub async fn run_ui<B: Backend>(
     terminal: &mut Terminal<B>,
     mut ui_rx: mpsc::UnboundedReceiver<UiMessage>,
-    mut serial_rx: mpsc::UnboundedReceiver<SerialData>,
-    port: Arc<tokio::sync::Mutex<Box<dyn serialport::SerialPort + Send>>>,
+    mut serial_rx: mpsc::UnboundedReceiver<SerialEvent>,
     ui_config: UiConfig,
 ) -> Result<()> {
     let mut app_state = AppState::new();
-    // No cached timestamp needed with chrono
 
     while ui_config.running.load(Ordering::SeqCst) && !app_state.should_quit {
         tokio::select! {
@@ -45,14 +41,10 @@ pub async fn run_ui<B: Backend>(
                 }
             }
 
-            // Serial data
-            data = serial_rx.recv() => {
-                if let Some(data) = data {
-                    match data {
-                        SerialData::Received(line) => {
-                            app_state.add_output(line);
-                        }
-                    }
+            // Serial events
+            event = serial_rx.recv() => {
+                if let Some(event) = event {
+                    handle_serial_event(event, &mut app_state);
                 }
             }
 
@@ -67,7 +59,7 @@ pub async fn run_ui<B: Backend>(
             } => {
                 if let Ok(Event::Key(k)) = key_result
                     && k.kind == KeyEventKind::Press {
-                    handle_key_event(k, &mut app_state, &port, &ui_config).await?;
+                    handle_key_event(k, &mut app_state, &ui_config);
                 }
             }
         }
@@ -83,12 +75,30 @@ pub async fn run_ui<B: Backend>(
     Ok(())
 }
 
-async fn handle_key_event(
+fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
+    match event {
+        SerialEvent::Data(bytes) => {
+            app_state.add_output(String::from_utf8_lossy(&bytes).into_owned());
+        }
+        SerialEvent::Error(message) => {
+            app_state.add_notice(format!("[sermonizer] {message}"));
+        }
+        SerialEvent::Disconnected(reason) => {
+            app_state.add_notice(format!(
+                "[sermonizer] device disconnected: {reason} — reconnecting (Ctrl+C to quit)"
+            ));
+        }
+        SerialEvent::Reconnected => {
+            app_state.add_notice("[sermonizer] device reconnected".to_string());
+        }
+    }
+}
+
+fn handle_key_event(
     key: crossterm::event::KeyEvent,
     app_state: &mut AppState,
-    port: &Arc<tokio::sync::Mutex<Box<dyn serialport::SerialPort + Send>>>,
     ui_config: &UiConfig,
-) -> Result<()> {
+) {
     match key.code {
         KeyCode::Char(c)
             if key.modifiers.contains(KeyModifiers::CONTROL) && (c == 'c' || c == 'd') =>
@@ -106,7 +116,7 @@ async fn handle_key_event(
             app_state.update_input(c);
         }
         KeyCode::Enter => {
-            handle_enter_key(app_state, port, ui_config).await?;
+            handle_enter_key(app_state, ui_config);
         }
         KeyCode::Backspace => {
             app_state.backspace_input();
@@ -131,46 +141,19 @@ async fn handle_key_event(
         }
         _ => {}
     }
-    Ok(())
 }
 
-async fn handle_enter_key(
-    app_state: &mut AppState,
-    port: &Arc<tokio::sync::Mutex<Box<dyn serialport::SerialPort + Send>>>,
-    ui_config: &UiConfig,
-) -> Result<()> {
+fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
     let input = app_state.clear_input();
 
-    // Send the complete line to serial port
-    if !input.is_empty() {
-        write_bytes_async(port, input.as_bytes()).await?;
-        if let Some(w) = &ui_config.tx_log
-            && let Ok(mut lw) = w.lock()
-        {
-            use std::io::Write;
-            if ui_config.log_ts {
-                let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
-            }
-            let _ = lw.write_all(input.as_bytes());
-            let _ = lw.flush();
-        }
+    // Send input and line ending as a single write
+    let mut bytes = input.into_bytes();
+    bytes.extend_from_slice(ui_config.line_ending.bytes());
+    if bytes.is_empty() {
+        return;
     }
 
-    // Send line ending
-    let end = ui_config.line_ending.bytes();
-    if !end.is_empty() {
-        write_bytes_async(port, end).await?;
-        if let Some(w) = &ui_config.tx_log
-            && let Ok(mut lw) = w.lock()
-        {
-            use std::io::Write;
-            if ui_config.log_ts && input.is_empty() {
-                let _ = write!(lw, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"));
-            }
-            let _ = lw.write_all(end);
-            let _ = lw.flush();
-        }
+    if ui_config.writer.send(WriterMsg::Data(bytes)).is_err() {
+        app_state.add_notice("[sermonizer] writer stopped, input dropped".to_string());
     }
-
-    Ok(())
 }

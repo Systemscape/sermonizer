@@ -1,6 +1,28 @@
 use clap::ValueEnum;
-use std::io::BufWriter;
-use std::sync::{Arc, Mutex as StdMutex, atomic::AtomicBool};
+use serialport::{ClearBuffer, SerialPort};
+use std::sync::{Arc, atomic::AtomicBool};
+use std::time::Duration;
+
+use crate::serial_io::WriterMsg;
+
+/// Everything needed to (re)open the serial port.
+#[derive(Clone)]
+pub struct PortSettings {
+    pub name: String,
+    pub baud: u32,
+}
+
+impl PortSettings {
+    pub fn open(&self) -> serialport::Result<Box<dyn SerialPort>> {
+        let port = serialport::new(&self.name, self.baud)
+            .timeout(Duration::from_millis(100))
+            .open()?;
+
+        // Drop any stale data buffered by the OS
+        port.clear(ClearBuffer::All)?;
+        Ok(port)
+    }
+}
 
 /// Which line ending to send when you press Enter
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -38,6 +60,5 @@ impl LineEnding {
 pub struct UiConfig {
     pub running: Arc<AtomicBool>,
     pub line_ending: LineEnding,
-    pub tx_log: Option<Arc<StdMutex<BufWriter<std::fs::File>>>>,
-    pub log_ts: bool,
+    pub writer: std::sync::mpsc::Sender<WriterMsg>,
 }
