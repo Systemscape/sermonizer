@@ -1,0 +1,24 @@
+Cargo.toml
+  s_7dda44ca9a6421::t_9adb7250097121 26-30
+.github/workflows/release.yml
+  s_7dda44ca9a6421::t_9adb7250097121 1-296
+dist-workspace.toml
+  s_7dda44ca9a6421::t_49b552a2480b15 18-22
+  s_7dda44ca9a6421::t_9adb7250097121 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c80f729d53aa5b70b66d277d7655a4ee36d467af",
+  "prompts": {},
+  "sessions": {
+    "s_7dda44ca9a6421": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ae22728-5ed5-4e50-8c88-6350e8e10abe",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
