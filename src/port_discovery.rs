@@ -66,13 +66,13 @@ pub fn choose_port_interactive(ports: &[SerialPortInfo]) -> Result<String> {
             println!();
 
             // Temporarily disable raw mode if it was on (it isn't yet, but be safe)
-            let was_raw = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
+            let was_raw = ratatui::crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
             if was_raw {
-                let _ = crossterm::terminal::disable_raw_mode();
+                let _ = ratatui::crossterm::terminal::disable_raw_mode();
             }
             let selection = prompt_for_selection(ports.len());
             if was_raw {
-                let _ = crossterm::terminal::enable_raw_mode();
+                let _ = ratatui::crossterm::terminal::enable_raw_mode();
             }
 
             let name = ports[selection?].port_name.clone();

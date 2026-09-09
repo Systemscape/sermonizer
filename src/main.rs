@@ -9,9 +9,9 @@ use clap::Parser;
 use config::{
     DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, Toggle, UiConfig,
 };
-use crossterm::terminal;
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
+use ratatui::crossterm::terminal;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use serial_io::{SerialEvent, WriterMsg, spawn_supervisor, spawn_writer};
 use std::path::PathBuf;
@@ -202,7 +202,7 @@ async fn main() -> Result<()> {
     // Setup terminal for ratatui
     terminal::enable_raw_mode().context("Failed to enable raw mode")?;
     let mut stdout = std::io::stdout();
-    crossterm::execute!(stdout, terminal::EnterAlternateScreen)?;
+    ratatui::crossterm::execute!(stdout, terminal::EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -219,7 +219,7 @@ async fn main() -> Result<()> {
 
     // Cleanup terminal
     terminal::disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
+    ratatui::crossterm::execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     // Ensure we stop and join the serial threads

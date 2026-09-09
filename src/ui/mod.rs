@@ -6,7 +6,7 @@ pub use app_state::AppState;
 pub use rendering::draw_ui;
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{Terminal, backend::Backend};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -124,11 +124,7 @@ fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
     }
 }
 
-fn handle_key_event(
-    key: crossterm::event::KeyEvent,
-    app_state: &mut AppState,
-    ui_config: &UiConfig,
-) {
+fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfig) {
     // Ctrl+V arms literal mode: the next key is sent as a raw control byte
     if app_state.pending_literal {
         app_state.pending_literal = false;
@@ -210,7 +206,7 @@ fn handle_key_event(
 }
 
 /// Map a key pressed after Ctrl+V to the raw byte it should send.
-fn literal_byte(key: crossterm::event::KeyEvent) -> Option<u8> {
+fn literal_byte(key: KeyEvent) -> Option<u8> {
     match key.code {
         KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
             let c = c.to_ascii_uppercase();
