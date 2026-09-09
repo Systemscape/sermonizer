@@ -3,13 +3,34 @@ use std::fmt::Write as _;
 
 const HEX_BYTES_PER_LINE: usize = 16;
 const MAX_TEXT_LINE_BYTES: usize = 4096;
+const ESC: u8 = 0x1B;
+const BEL: u8 = 0x07;
+
+/// Position inside an ANSI escape sequence while parsing text mode input.
+/// Byte classes follow ECMA-48; anything outside them aborts the sequence so
+/// line noise stays visible instead of being swallowed.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum EscapeState {
+    Text,
+    /// After ESC: intermediates (0x20..=0x2F) then a final byte (0x30..=0x7E)
+    Escape,
+    /// After ESC [: parameters and intermediates (0x20..=0x3F) then a final
+    /// byte (0x40..=0x7E)
+    Csi,
+    /// Inside OSC/DCS/SOS/PM/APC, which run until BEL or ESC \
+    Str,
+    /// ESC seen inside a string sequence, deciding whether it terminates it
+    StrEsc,
+}
 
 /// Assembles raw serial bytes into display lines. Text mode buffers raw bytes
-/// into bounded lines so multi-byte UTF-8 sequences split across reads survive;
-/// hex mode emits fixed-width rows.
+/// into bounded lines so multi-byte UTF-8 sequences split across reads survive
+/// and drops ANSI escape sequences the list widget cannot render; hex mode
+/// emits fixed-width rows.
 pub struct LineAssembler {
     hex: bool,
     timestamps: bool,
+    escape: EscapeState,
     partial: Vec<u8>,
     hex_row: String,
     hex_col: usize,
@@ -21,6 +42,7 @@ impl LineAssembler {
         Self {
             hex,
             timestamps,
+            escape: EscapeState::Text,
             partial: Vec::with_capacity(256),
             hex_row: String::new(),
             hex_col: 0,
@@ -40,10 +62,17 @@ impl LineAssembler {
     fn push_text(&mut self, bytes: &[u8]) -> Vec<String> {
         let mut done = Vec::new();
         for &b in bytes {
+            if b != b'\n' && self.consume_escape(b) {
+                continue;
+            }
+            // Only displayed bytes start a line, so escape prefixes such as a
+            // screen clear do not stamp a line that arrives later
             if self.timestamps && self.line_ts.is_none() {
                 self.line_ts = Some(timestamp());
             }
             if b == b'\n' {
+                // A newline always ends the line, even inside a broken escape
+                self.escape = EscapeState::Text;
                 let mut line = self.line_ts.take().unwrap_or_default();
                 let raw = self.partial.strip_suffix(b"\r").unwrap_or(&self.partial);
                 line.push_str(&String::from_utf8_lossy(raw));
@@ -66,6 +95,38 @@ impl LineAssembler {
             }
         }
         done
+    }
+
+    /// Track ANSI escape sequences; returns true when the byte belongs to one
+    /// and must not be displayed.
+    fn consume_escape(&mut self, b: u8) -> bool {
+        use EscapeState::*;
+        let (next, consumed) = match (self.escape, b) {
+            (Text, ESC) => (Escape, true),
+            (Text, _) => (Text, false),
+
+            (Escape, ESC) => (Escape, true),
+            (Escape, b'[') => (Csi, true),
+            (Escape, b']' | b'P' | b'X' | b'^' | b'_') => (Str, true),
+            (Escape, 0x20..=0x2F) => (Escape, true),
+            (Escape, 0x30..=0x7E) => (Text, true),
+            (Escape, _) => (Text, false),
+
+            (Csi, ESC) => (Escape, true),
+            (Csi, 0x20..=0x3F) => (Csi, true),
+            (Csi, 0x40..=0x7E) => (Text, true),
+            (Csi, _) => (Text, false),
+
+            (Str, BEL) => (Text, true),
+            (Str, ESC) => (StrEsc, true),
+            (Str, _) => (Str, true),
+
+            (StrEsc, b'\\') => (Text, true),
+            (StrEsc, ESC) => (StrEsc, true),
+            (StrEsc, _) => (Str, true),
+        };
+        self.escape = next;
+        consumed
     }
 
     fn push_hex(&mut self, bytes: &[u8]) -> Vec<String> {
@@ -117,6 +178,7 @@ impl LineAssembler {
     }
 
     pub fn clear(&mut self) {
+        self.escape = EscapeState::Text;
         self.partial.clear();
         self.hex_row.clear();
         self.hex_col = 0;
@@ -169,6 +231,79 @@ mod tests {
         assert_eq!(asm.partial_display().as_deref(), Some("gr"));
         assert_eq!(asm.push(&bytes[3..]), vec!["grün".to_string()]);
         assert_eq!(asm.partial_display(), None);
+    }
+
+    #[test]
+    fn ansi_escape_sequences_are_stripped_from_text() {
+        let mut asm = LineAssembler::new(false, false);
+        let line = b"\x1b[0;32mI (123) main: ok\x1b[0m\r\n";
+        assert_eq!(asm.push(line), vec!["I (123) main: ok".to_string()]);
+    }
+
+    #[test]
+    fn ansi_escape_split_across_chunks_is_stripped() {
+        let mut asm = LineAssembler::new(false, false);
+        assert!(asm.push(b"a\x1b[").is_empty());
+        assert_eq!(asm.partial_display().as_deref(), Some("a"));
+        assert_eq!(asm.push(b"1;31mb\n"), vec!["ab".to_string()]);
+    }
+
+    #[test]
+    fn two_byte_escape_and_newline_inside_escape_are_handled() {
+        let mut asm = LineAssembler::new(false, false);
+        // ESC c (reset) is a two-byte sequence; a newline aborts a broken one
+        assert_eq!(
+            asm.push(b"\x1bcx\x1b[9\ny\n"),
+            vec!["x".to_string(), "y".to_string()]
+        );
+    }
+
+    #[test]
+    fn bytes_outside_csi_ranges_abort_the_sequence_and_stay_visible() {
+        let mut asm = LineAssembler::new(false, false);
+        // Line noise: ESC [ followed by high bytes must not swallow the text
+        let out = asm.push(b"good\x1b[\x80\x81 lots of text\n");
+        assert_eq!(out, vec!["good\u{FFFD}\u{FFFD} lots of text".to_string()]);
+        // ESC followed by a UTF-8 character keeps the character intact
+        assert_eq!(
+            asm.push("\x1b\u{fc}\n".as_bytes()),
+            vec!["\u{fc}".to_string()]
+        );
+        // Doubled ESC still strips the following SGR
+        assert_eq!(asm.push(b"\x1b\x1b[31mred\n"), vec!["red".to_string()]);
+    }
+
+    #[test]
+    fn string_sequences_are_consumed_up_to_their_terminator() {
+        let mut asm = LineAssembler::new(false, false);
+        assert_eq!(
+            asm.push(b"\x1b]0;my board\x07hello\n"),
+            vec!["hello".to_string()]
+        );
+        assert_eq!(
+            asm.push(b"\x1b]8;;https://x.io\x1b\\click\x1b]8;;\x1b\\ done\n"),
+            vec!["click done".to_string()]
+        );
+        assert_eq!(
+            asm.push(b"\x1bPq#0;2\x1b\\tail\n"),
+            vec!["tail".to_string()]
+        );
+    }
+
+    #[test]
+    fn timestamp_is_not_taken_from_escape_bytes() {
+        let mut asm = LineAssembler::new(false, true);
+        assert!(asm.push(b"\x1b[2J").is_empty());
+        assert_eq!(asm.line_ts, None);
+        assert_eq!(asm.partial_display(), None);
+        assert!(asm.push(b"x\n")[0].ends_with("] x"));
+    }
+
+    #[test]
+    fn hex_mode_keeps_escape_bytes() {
+        let mut asm = LineAssembler::new(true, false);
+        asm.push(b"\x1b[");
+        assert_eq!(asm.partial_display().as_deref(), Some("1B 5B"));
     }
 
     #[test]
