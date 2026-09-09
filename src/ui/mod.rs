@@ -35,55 +35,61 @@ pub async fn run_ui<B: Backend>(
     );
     let (mut input_rx, input_handle) = spawn_input_thread(ui_config.running.clone());
 
-    loop {
-        // Only render if state changed - major performance optimization
-        if app_state.needs_render {
-            terminal.draw(|f| draw_ui(f, &mut app_state))?;
-            app_state.mark_rendered();
-        }
+    // Run the loop in a block so the input thread is stopped and joined on
+    // every exit path, including a failed draw
+    let result: Result<()> = async {
+        loop {
+            // Only render if state changed - major performance optimization
+            if app_state.needs_render {
+                terminal.draw(|f| draw_ui(f, &mut app_state))?;
+                app_state.mark_rendered();
+            }
 
-        if !ui_config.running.load(Ordering::SeqCst) || app_state.should_quit {
-            break;
-        }
+            if !ui_config.running.load(Ordering::SeqCst) || app_state.should_quit {
+                break;
+            }
 
-        tokio::select! {
-            // UI messages (like quit from Ctrl-C)
-            msg = ui_rx.recv() => {
-                match msg {
-                    Some(UiMessage::Quit) | None => app_state.quit(),
+            tokio::select! {
+                // UI messages (like quit from Ctrl-C)
+                msg = ui_rx.recv() => {
+                    match msg {
+                        Some(UiMessage::Quit) | None => app_state.quit(),
+                    }
+                }
+
+                // Serial events
+                event = serial_rx.recv() => {
+                    match event {
+                        Some(event) => handle_serial_event(event, &mut app_state),
+                        None => app_state.quit(),
+                    }
+                }
+
+                // Terminal events from the blocking input thread
+                input = input_rx.recv() => {
+                    match input {
+                        Some(ev) => handle_input_event(ev, &mut app_state, &ui_config),
+                        None => app_state.quit(),
+                    }
                 }
             }
 
-            // Serial events
-            event = serial_rx.recv() => {
-                match event {
-                    Some(event) => handle_serial_event(event, &mut app_state),
-                    None => app_state.quit(),
-                }
+            // Fold everything already queued into the same frame: a fast serial
+            // stream arrives in many small reads and must not cost a draw each
+            while let Ok(event) = serial_rx.try_recv() {
+                handle_serial_event(event, &mut app_state);
             }
-
-            // Terminal events from the blocking input thread
-            input = input_rx.recv() => {
-                match input {
-                    Some(ev) => handle_input_event(ev, &mut app_state, &ui_config),
-                    None => app_state.quit(),
-                }
+            while let Ok(ev) = input_rx.try_recv() {
+                handle_input_event(ev, &mut app_state, &ui_config);
             }
         }
-
-        // Fold everything already queued into the same frame: a fast serial
-        // stream arrives in many small reads and must not cost a draw each
-        while let Ok(event) = serial_rx.try_recv() {
-            handle_serial_event(event, &mut app_state);
-        }
-        while let Ok(ev) = input_rx.try_recv() {
-            handle_input_event(ev, &mut app_state, &ui_config);
-        }
+        Ok(())
     }
+    .await;
 
     ui_config.running.store(false, Ordering::SeqCst);
     let _ = input_handle.join();
-    Ok(())
+    result
 }
 
 /// Reads terminal events on a dedicated thread so the UI loop can await them
