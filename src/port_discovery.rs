@@ -78,50 +78,53 @@ fn natural_part(run: String, is_digit: bool) -> NaturalPart {
     }
 }
 
-pub fn print_ports(listing: &PortListing) {
+/// Write the port list. Takes a writer instead of printing so a closed pipe
+/// (`sermonizer --list | head`) surfaces as an error instead of a panic.
+pub fn print_ports(out: &mut impl Write, listing: &PortListing) -> io::Result<()> {
     let ports = &listing.shown;
     if listing.usb_count() == 0 {
-        println!("No USB serial device found.");
+        writeln!(out, "No USB serial device found.")?;
     }
     if ports.is_empty() {
         if listing.hidden > 0 {
-            println!(
+            writeln!(
+                out,
                 "{} port(s) of unknown type hidden; use --all-ports to list them.",
                 listing.hidden
-            );
+            )?;
         } else {
-            println!("No serial ports found.");
+            writeln!(out, "No serial ports found.")?;
         }
-        return;
+        return Ok(());
     }
-    println!("Available serial ports:");
+    writeln!(out, "Available serial ports:")?;
     for (i, p) in ports.iter().enumerate() {
-        print!("  [{}] {}", i + 1, p.port_name);
+        write!(out, "  [{}] {}", i + 1, p.port_name)?;
         match &p.port_type {
             SerialPortType::UsbPort(info) => {
-                print!("  (USB");
-                print!(" vid=0x{:04x}", info.vid);
-                print!(" pid=0x{:04x}", info.pid);
+                write!(out, "  (USB vid=0x{:04x} pid=0x{:04x}", info.vid, info.pid)?;
                 if let Some(m) = &info.manufacturer {
-                    print!(" {m}");
+                    write!(out, " {m}")?;
                 }
                 if let Some(pn) = &info.product {
-                    print!(" {pn}");
+                    write!(out, " {pn}")?;
                 }
-                print!(")");
+                write!(out, ")")?;
             }
-            SerialPortType::BluetoothPort => print!("  (Bluetooth)"),
-            SerialPortType::PciPort => print!("  (PCI)"),
+            SerialPortType::BluetoothPort => write!(out, "  (Bluetooth)")?,
+            SerialPortType::PciPort => write!(out, "  (PCI)")?,
             SerialPortType::Unknown => {}
         }
-        println!();
+        writeln!(out)?;
     }
     if listing.hidden > 0 {
-        println!(
+        writeln!(
+            out,
             "({} port(s) of unknown type hidden; use --all-ports to list them)",
             listing.hidden
-        );
+        )?;
     }
+    Ok(())
 }
 
 pub fn choose_port_interactive(listing: &PortListing) -> Result<String> {
@@ -147,7 +150,7 @@ pub fn choose_port_interactive(listing: &PortListing) -> Result<String> {
             Ok(name)
         }
         _ => {
-            print_ports(listing);
+            print_ports(&mut io::stdout().lock(), listing)?;
             println!();
 
             // Temporarily disable raw mode if it was on (it isn't yet, but be safe)
@@ -269,6 +272,40 @@ mod tests {
                 "/dev/ttyS10"
             ]
         );
+    }
+
+    #[test]
+    fn print_ports_lists_usb_details_and_hidden_count() {
+        let listing = select_ports(
+            vec![
+                port("/dev/ttyUSB0", usb()),
+                port("/dev/ttyS0", SerialPortType::Unknown),
+            ],
+            false,
+        );
+        let mut out = Vec::new();
+        print_ports(&mut out, &listing).expect("write to a vec");
+        assert_eq!(
+            String::from_utf8(out).expect("utf-8"),
+            "Available serial ports:\n  [1] /dev/ttyUSB0  (USB vid=0x10c4 pid=0xea60)\n\
+             (1 port(s) of unknown type hidden; use --all-ports to list them)\n"
+        );
+    }
+
+    #[test]
+    fn print_ports_reports_a_closed_pipe_instead_of_panicking() {
+        struct ClosedPipe;
+        impl Write for ClosedPipe {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let listing = select_ports(vec![port("/dev/ttyUSB0", usb())], false);
+        let err = print_ports(&mut ClosedPipe, &listing).expect_err("pipe is closed");
+        assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
     }
 
     #[test]

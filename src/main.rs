@@ -116,8 +116,13 @@ async fn main() -> Result<()> {
     let ports = get_available_ports(args.all_ports)?;
 
     if args.list {
-        print_ports(&ports);
-        return Ok(());
+        // A pager that exits early closes our stdout; that is not an error
+        return match print_ports(&mut std::io::stdout().lock(), &ports) {
+            Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
+                Err(e).context("Failed to print port list")
+            }
+            _ => Ok(()),
+        };
     }
 
     // Decide on port
