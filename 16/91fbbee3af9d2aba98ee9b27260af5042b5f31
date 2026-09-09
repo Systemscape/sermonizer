@@ -1,0 +1,29 @@
+README.md
+  s_4af44bd7499c7c::t_5eb5b3b8a4e2c8 22,71
+src/config.rs
+  s_4af44bd7499c7c::t_9ac31eaab6f66a 219-220
+src/main.rs
+  s_4af44bd7499c7c::t_641b047242e0e4 85-88,140-142,233
+src/ui/app_state.rs
+  s_4af44bd7499c7c::t_102793141e0cdb 4,37,66,95-99
+src/ui/line_assembler.rs
+  s_4af44bd7499c7c::t_d19500fb285103 203
+src/ui/mod.rs
+  s_4af44bd7499c7c::t_b1a76164999e63 306,314-315,333,339-359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1691fbbee3af9d2aba98ee9b27260af5042b5f31",
+  "prompts": {},
+  "sessions": {
+    "s_4af44bd7499c7c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5551a962-3406-4041-bb12-774aaf00db3a",
+        "model": "unknown"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
