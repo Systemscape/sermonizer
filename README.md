@@ -15,7 +15,7 @@ Most terminal-based serial monitors are annoying to use - they have clunky inter
 - **Smart auto-scroll**: Follows new data, easy to switch to manual scrolling
 - **Auto-reconnect**: Keeps watching the port and resumes when the device comes back
 - **Clean TUI**: Split view with input at bottom, output on top, status bar with connection state
-- **Auto-detect ports**: Just run `sermonizer` and it finds your device
+- **Auto-detect ports**: Just run `sermonizer` and it finds your device; dead onboard UARTs stay out of the way unless you ask for `--all-ports`
 - **Sane defaults**: 115200 baud, 8 data bits, no parity, 1 stop bit
 - **Hex mode**: View binary data as hex bytes
 - **Clean text**: ANSI colour codes from firmware logs are stripped (keep them with `--raw`)
@@ -75,6 +75,7 @@ Options:
       --tx-log <FILE>      Log transmitted data
   -t, --timestamps         Add timestamps to display and logs (alias: --log-ts)
       --list               List available ports
+      --all-ports          Also list ports of unknown type (e.g. /dev/ttyS*), hidden by default
 ```
 
 ## Controls

@@ -101,6 +101,11 @@ struct Args {
     /// Just list ports and exit
     #[arg(long)]
     list: bool,
+
+    /// Also list and offer ports of unknown type, such as onboard UARTs
+    /// (/dev/ttyS*), which are hidden by default
+    #[arg(long)]
+    all_ports: bool,
 }
 
 #[tokio::main]
@@ -108,7 +113,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Enumerate ports up front
-    let ports = get_available_ports()?;
+    let ports = get_available_ports(args.all_ports)?;
 
     if args.list {
         print_ports(&ports);
