@@ -1,0 +1,29 @@
+src/ui/mod.rs
+  s_5e0bd8aca256d6::t_a739dba6b0bcd7 242-273
+  s_5e0bd8aca256d6::t_6908e7b0f38292 112-114
+  s_988ee6b9cc3cde::t_0d4bf160448d8c 274-275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e38ef61251c68df6630670a2daac0c428fd460f4",
+  "prompts": {},
+  "sessions": {
+    "s_5e0bd8aca256d6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08577-e457-7061-ada4-e50e2878fa9b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    },
+    "s_988ee6b9cc3cde": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0856e-a40d-7b92-90d1-c4419039fbcc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
