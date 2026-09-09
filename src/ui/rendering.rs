@@ -218,6 +218,75 @@ mod tests {
         assert_eq!(wrap_text("x", Some(0)), vec!["x"]);
     }
 
+    fn demo_state() -> AppState {
+        let mut state = AppState::new(false, false, true, "ttyUSB0 115200 8N1".to_string(), "LF");
+        state.add_rx("[2026-09-10 09:41:02.118] I (312) boot: ESP-IDF v5.2".to_string());
+        state.add_rx("[2026-09-10 09:41:02.121] I (318) wifi: connecting to lab-iot".to_string());
+        state.add_rx("[2026-09-10 09:41:03.877] I (2074) wifi: got ip 192.168.4.23".to_string());
+        state.add_tx("[2026-09-10 09:41:07.402] AT+GMR".to_string());
+        state.add_rx("[2026-09-10 09:41:07.410] AT version:2.4.0.0".to_string());
+        state.add_rx("[2026-09-10 09:41:07.411] OK".to_string());
+        state.add_notice(
+            "[sermonizer] device disconnected: Broken pipe - reconnecting (Ctrl+C to quit)"
+                .to_string(),
+        );
+        state.add_notice("[sermonizer] device reconnected".to_string());
+        state.add_rx("[2026-09-10 09:41:12.006] I (309) boot: ESP-IDF v5.2".to_string());
+        state.add_data(b"[2026-09-10 09:41:12.009] I (315) main: sensor=23.4C hum=41%");
+        for c in "AT+CWJAP=\"lab-iot\",\"".chars() {
+            state.update_input(c);
+        }
+        state
+    }
+
+    fn render(width: u16, height: u16) -> String {
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        let mut state = demo_state();
+        terminal.draw(|f| draw_ui(f, &mut state)).expect("draw");
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn renders_without_panicking_on_tiny_terminals() {
+        for (w, h) in [(1, 1), (10, 3), (20, 5), (40, 6), (80, 24)] {
+            let screen = render(w, h);
+            assert_eq!(screen.lines().count(), usize::from(h), "{w}x{h}");
+        }
+    }
+
+    #[test]
+    fn output_shows_rx_tx_notices_and_the_partial_line() {
+        let screen = render(100, 18);
+        assert!(
+            screen.contains("> [2026-09-10 09:41:07.402] AT+GMR"),
+            "{screen}"
+        );
+        assert!(screen.contains("device reconnected"), "{screen}");
+        assert!(screen.contains("sensor=23.4C hum=41%"), "{screen}");
+        assert!(
+            screen.contains(" ttyUSB0 115200 8N1  follow | LF"),
+            "{screen}"
+        );
+    }
+
+    /// Prints the README screenshot: cargo test readme_screenshot -- --ignored --nocapture
+    #[test]
+    #[ignore = "prints the README screenshot on demand"]
+    fn readme_screenshot() {
+        println!("{}", render(96, 18));
+    }
+
     #[test]
     fn wrapped_short_lines_take_a_single_row() {
         for kind in [LineKind::Rx, LineKind::Tx, LineKind::Notice] {

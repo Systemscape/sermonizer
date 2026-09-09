@@ -8,7 +8,28 @@ A simple, clean serial monitor with a clean terminal UI for embedded development
 
 Most terminal-based serial monitors are annoying to use - they have clunky interfaces and no sane defaults. We wanted something that could be quickly spun up to interact with embedded devices during firmware development without any hassle.
 
-![Screenshot](./docs/screenshot.png)
+```text
+┌Serial Monitor────────────────────────────────────────────────────────────────────────────────┐
+│[2026-09-10 09:41:02.118] I (312) boot: ESP-IDF v5.2                                          │
+│[2026-09-10 09:41:02.121] I (318) wifi: connecting to lab-iot                                 │
+│[2026-09-10 09:41:03.877] I (2074) wifi: got ip 192.168.4.23                                  │
+│> [2026-09-10 09:41:07.402] AT+GMR                                                            │
+│[2026-09-10 09:41:07.410] AT version:2.4.0.0                                                  │
+│[2026-09-10 09:41:07.411] OK                                                                  │
+│[sermonizer] device disconnected: Broken pipe - reconnecting (Ctrl+C to quit)                 │
+│[sermonizer] device reconnected                                                               │
+│[2026-09-10 09:41:12.006] I (309) boot: ESP-IDF v5.2                                          │
+│[2026-09-10 09:41:12.009] I (315) main: sensor=23.4C hum=41%                                  │
+│                                                                                              │
+│                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+┌Input─────────────────────────────────────────────────────────────────────────────────────────┐
+│AT+CWJAP="lab-iot","                                                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+ ttyUSB0 115200 8N1  follow | LF | Enter send, Up/Down history, Shift+Up/Down PgUp/PgDn scroll,
+```
+
+*Received lines, a sent line (`>`, shown with `--echo`), sermonizer's own notices and the line still being received. Regenerate with `cargo test readme_screenshot -- --ignored --nocapture`.*
 
 ## Features
 
