@@ -54,7 +54,10 @@ impl LineAssembler {
                     && ((b & 0xC0 != 0x80 && b != b'\r')
                         || self.partial.len() >= MAX_TEXT_LINE_BYTES + 4)
                 {
-                    done.push(self.finish().unwrap());
+                    done.push(
+                        self.finish()
+                            .expect("partial holds at least MAX_TEXT_LINE_BYTES bytes"),
+                    );
                     if self.timestamps {
                         self.line_ts = Some(timestamp());
                     }
