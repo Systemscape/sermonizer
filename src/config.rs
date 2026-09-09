@@ -180,6 +180,7 @@ pub enum LineEnding {
     /// Send nothing extra (no line ending)
     None,
     /// Send '\n' (LF)
+    #[value(alias = "lf")]
     Nl,
     /// Send '\r' (CR)
     Cr,

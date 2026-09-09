@@ -58,7 +58,7 @@ sermonizer [OPTIONS]
 Options:
   -p, --port <PORT>        Serial port path
   -b, --baud <BAUD>        Baud rate (default: 115200)
-      --line-ending <E>    Line ending: none|nl|cr|crlf (default: nl)
+      --line-ending <E>    Line ending: none|nl|lf|cr|crlf (default: nl)
       --data-bits <N>      Data bits: 5|6|7|8 (default: 8)
       --parity <P>         Parity: none|odd|even (default: none)
       --stop-bits <N>      Stop bits: 1|2 (default: 1)

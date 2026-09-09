@@ -32,7 +32,7 @@ struct Args {
     #[arg(short = 'b', long, default_value_t = 115_200)]
     baud: u32,
 
-    /// Line ending when you press Enter (none|nl|cr|crlf). Default: nl
+    /// Line ending when you press Enter (none|nl|cr|crlf; lf is an alias for nl). Default: nl
     #[arg(long, value_enum)]
     line_ending: Option<LineEnding>,
 
