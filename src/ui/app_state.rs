@@ -85,12 +85,14 @@ impl AppState {
             return;
         }
         self.output_lines.drain(..overflow);
-        // Keep the manual scroll position anchored to the same line while
+        // Keep the manual scroll window anchored to the same lines while
         // old lines are pruned from the front
         if let Some(selected) = self.list_state.selected() {
             self.list_state
                 .select(Some(selected.saturating_sub(overflow)));
         }
+        let offset = self.list_state.offset();
+        *self.list_state.offset_mut() = offset.saturating_sub(overflow);
     }
 
     pub fn scroll_up(&mut self) {
@@ -319,6 +321,20 @@ mod tests {
         state.scroll_page_down(10);
         assert!(state.auto_scroll);
         assert_eq!(state.list_state.selected(), None);
+    }
+
+    #[test]
+    fn trimming_keeps_manual_scroll_window_anchored() {
+        let mut state = state_with_lines(MAX_OUTPUT_LINES);
+        state.scroll_up();
+        state.list_state.select(Some(510));
+        *state.list_state.offset_mut() = 500;
+
+        for _ in 0..10 {
+            state.add_notice("new".to_string());
+        }
+        assert_eq!(state.list_state.selected(), Some(500));
+        assert_eq!(state.list_state.offset(), 490);
     }
 
     #[test]
