@@ -2,9 +2,10 @@ use chrono::Utc;
 use std::fmt::Write as _;
 
 const HEX_BYTES_PER_LINE: usize = 16;
+const MAX_TEXT_LINE_BYTES: usize = 4096;
 
 /// Assembles raw serial bytes into display lines. Text mode buffers raw bytes
-/// until a newline so multi-byte UTF-8 sequences split across reads survive;
+/// into bounded lines so multi-byte UTF-8 sequences split across reads survive;
 /// hex mode emits fixed-width rows.
 pub struct LineAssembler {
     hex: bool,
@@ -49,6 +50,15 @@ impl LineAssembler {
                 done.push(line);
                 self.partial.clear();
             } else {
+                if self.partial.len() >= MAX_TEXT_LINE_BYTES
+                    && ((b & 0xC0 != 0x80 && b != b'\r')
+                        || self.partial.len() >= MAX_TEXT_LINE_BYTES + 4)
+                {
+                    done.push(self.finish().unwrap());
+                    if self.timestamps {
+                        self.line_ts = Some(timestamp());
+                    }
+                }
                 self.partial.push(b);
             }
         }
@@ -87,6 +97,20 @@ impl LineAssembler {
             line.push_str(text.trim_end_matches('\r'));
             Some(line)
         }
+    }
+
+    pub fn finish(&mut self) -> Option<String> {
+        let line = if self.hex {
+            (!self.hex_row.is_empty()).then(|| std::mem::take(&mut self.hex_row))
+        } else if self.partial.is_empty() {
+            None
+        } else {
+            let mut line = self.line_ts.take().unwrap_or_default();
+            line.push_str(&String::from_utf8_lossy(&self.partial));
+            Some(line)
+        };
+        self.clear();
+        line
     }
 
     pub fn clear(&mut self) {
@@ -169,5 +193,61 @@ mod tests {
         asm.push(b"pending");
         asm.clear();
         assert_eq!(asm.partial_display(), None);
+    }
+
+    #[test]
+    fn newline_free_stream_is_bounded_and_preserved() {
+        for byte in [b'a', 0x80, b'\r'] {
+            let mut asm = LineAssembler::new(false, false);
+            let mut lines = Vec::new();
+            let chunk = vec![byte; 997];
+            for _ in 0..100 {
+                lines.extend(asm.push(&chunk));
+                assert!(asm.partial.len() <= MAX_TEXT_LINE_BYTES + 4);
+            }
+            lines.extend(asm.finish());
+            assert_eq!(lines.concat(), String::from_utf8_lossy(&vec![byte; 99700]));
+        }
+    }
+
+    #[test]
+    fn long_lines_preserve_utf8_at_each_split_boundary() {
+        for offset in 0..4 {
+            let text = "a".repeat(MAX_TEXT_LINE_BYTES - offset) + "🦀next\r\n";
+            let mut asm = LineAssembler::new(false, false);
+            let mut lines = Vec::new();
+            for byte in text.bytes() {
+                lines.extend(asm.push(&[byte]));
+            }
+            assert_eq!(lines.concat(), text.trim_end_matches("\r\n"));
+            assert_eq!(asm.partial_display(), None);
+        }
+    }
+
+    #[test]
+    fn newline_at_limit_does_not_create_an_extra_line() {
+        let mut asm = LineAssembler::new(false, false);
+        let text = "a".repeat(MAX_TEXT_LINE_BYTES);
+        assert!(asm.push(text.as_bytes()).is_empty());
+        assert_eq!(asm.push(b"\r\n"), vec![text]);
+    }
+
+    #[test]
+    fn finish_preserves_incomplete_utf8_and_resets_timestamps() {
+        let mut asm = LineAssembler::new(false, true);
+        asm.push(b"before\xF0\x9F");
+        assert!(asm.finish().unwrap().ends_with("before�"));
+        assert_eq!(asm.finish(), None);
+        assert_eq!(asm.line_ts, None);
+        assert!(asm.push(b"after\n")[0].ends_with("] after"));
+    }
+
+    #[test]
+    fn finish_resets_partial_hex_rows() {
+        let mut asm = LineAssembler::new(true, false);
+        asm.push(&[0xAB; 3]);
+        assert_eq!(asm.finish().as_deref(), Some("AB AB AB"));
+        assert_eq!(asm.finish(), None);
+        assert_eq!(asm.push(&[0xCD; 16]), vec!["CD ".repeat(15) + "CD"]);
     }
 }
