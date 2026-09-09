@@ -115,8 +115,10 @@ impl AppState {
             return;
         }
 
-        let selected = self.list_state.selected().unwrap_or(0);
-        if selected < self.output_lines.len() - 1 {
+        // While following, the implicit position is the last line
+        let last = self.output_lines.len() - 1;
+        let selected = self.list_state.selected().unwrap_or(last);
+        if selected < last {
             self.auto_scroll = false;
             self.list_state.select(Some(selected + 1));
             self.needs_render = true;
@@ -164,9 +166,10 @@ impl AppState {
         if self.output_lines.is_empty() {
             return;
         }
-        let current = self.list_state.selected().unwrap_or(0);
-        let new_selected = (current + page_size).min(self.output_lines.len().saturating_sub(1));
-        if new_selected == self.output_lines.len().saturating_sub(1) {
+        let last = self.output_lines.len() - 1;
+        let current = self.list_state.selected().unwrap_or(last);
+        let new_selected = (current + page_size).min(last);
+        if new_selected == last {
             self.enable_auto_scroll();
         } else {
             self.auto_scroll = false;
@@ -287,5 +290,45 @@ impl AppState {
 
     pub fn mark_rendered(&mut self) {
         self.needs_render = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_with_lines(n: usize) -> AppState {
+        let mut state = AppState::new(false, false, String::new(), "LF");
+        for i in 0..n {
+            state.add_notice(format!("line {i}"));
+        }
+        state
+    }
+
+    #[test]
+    fn scroll_down_while_following_stays_at_bottom() {
+        let mut state = state_with_lines(50);
+        state.scroll_down();
+        assert!(state.auto_scroll);
+        assert_eq!(state.list_state.selected(), None);
+    }
+
+    #[test]
+    fn page_down_while_following_stays_at_bottom() {
+        let mut state = state_with_lines(50);
+        state.scroll_page_down(10);
+        assert!(state.auto_scroll);
+        assert_eq!(state.list_state.selected(), None);
+    }
+
+    #[test]
+    fn scroll_up_then_down_moves_relative_to_bottom() {
+        let mut state = state_with_lines(50);
+        state.scroll_up();
+        assert_eq!(state.list_state.selected(), Some(48));
+        state.scroll_down();
+        assert_eq!(state.list_state.selected(), Some(49));
+        state.scroll_down();
+        assert!(state.auto_scroll);
     }
 }
