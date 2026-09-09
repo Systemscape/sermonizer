@@ -138,7 +138,7 @@ pub fn spawn_writer(
                             events.send(SerialEvent::Error("not connected, input dropped".into()));
                         continue;
                     };
-                    if let Err(e) = p.write_all(&bytes).and_then(|_| p.flush()) {
+                    if let Err(e) = p.write_all(&bytes) {
                         let _ = events.send(SerialEvent::Error(format!("write failed: {e}")));
                         continue;
                     }

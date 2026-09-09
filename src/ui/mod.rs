@@ -109,6 +109,9 @@ fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
             app_state.add_notice(format!("[sermonizer] {message}"));
         }
         SerialEvent::Disconnected(reason) => {
+            if let Some(line) = app_state.assembler.finish() {
+                app_state.add_notice(line);
+            }
             app_state.set_connected(false);
             app_state.add_notice(format!(
                 "[sermonizer] device disconnected: {reason} — reconnecting (Ctrl+C to quit)"
@@ -234,5 +237,39 @@ fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
 
     if ui_config.writer.send(WriterMsg::Data(bytes)).is_err() {
         app_state.add_notice("[sermonizer] writer stopped, input dropped".to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disconnect_finishes_partial_output_before_notices() {
+        for hex in [false, true] {
+            let mut state = AppState::new(hex, false, String::new(), "LF");
+            handle_serial_event(SerialEvent::Data(b"before".to_vec()), &mut state);
+            handle_serial_event(SerialEvent::Disconnected("EOF".into()), &mut state);
+            assert!(!state.connected);
+            assert_eq!(state.assembler.partial_display(), None);
+            assert_eq!(
+                state.output_lines[0],
+                if hex { "62 65 66 6F 72 65" } else { "before" }
+            );
+            assert!(state.output_lines[1].contains("device disconnected"));
+
+            handle_serial_event(SerialEvent::Reconnected, &mut state);
+            handle_serial_event(SerialEvent::Data(b"after\n".to_vec()), &mut state);
+            assert!(state.connected);
+            assert!(state.output_lines[2].contains("device reconnected"));
+            if hex {
+                assert_eq!(
+                    state.assembler.partial_display().as_deref(),
+                    Some("61 66 74 65 72 0A")
+                );
+            } else {
+                assert_eq!(state.output_lines[3], "after");
+            }
+        }
     }
 }
