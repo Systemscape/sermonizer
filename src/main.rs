@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use config::{
     DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, Toggle,
-    UiConfig, port_label,
+    UiConfig, open_hint, port_label,
 };
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
@@ -175,9 +175,10 @@ async fn main() -> Result<()> {
         dtr: args.dtr.map(Toggle::as_bool),
         rts: args.rts.map(Toggle::as_bool),
     };
-    let port = settings
-        .open()
-        .with_context(|| format!("Failed to open serial port '{port_name}'"))?;
+    let port = settings.open().map_err(|e| {
+        let hint = open_hint(&e).map(|h| format!("\n{h}")).unwrap_or_default();
+        anyhow::Error::new(e).context(format!("Failed to open serial port '{port_name}'{hint}"))
+    })?;
 
     println!("Connected. Type to send; press Ctrl-C to exit.\n");
 

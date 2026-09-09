@@ -43,6 +43,28 @@ impl PortSettings {
     }
 }
 
+/// A hint for the two open failures users hit most: the port is held by
+/// another program, or the user lacks permission on the device node.
+pub fn open_hint(error: &serialport::Error) -> Option<&'static str> {
+    use serialport::ErrorKind;
+    let description = error.description.to_ascii_lowercase();
+    match error.kind() {
+        ErrorKind::Io(std::io::ErrorKind::ResourceBusy) => Some(BUSY_HINT),
+        ErrorKind::Io(std::io::ErrorKind::PermissionDenied) => Some(PERMISSION_HINT),
+        ErrorKind::NoDevice => None,
+        _ if description.contains("busy") => Some(BUSY_HINT),
+        _ if description.contains("permission") || description.contains("access is denied") => {
+            Some(PERMISSION_HINT)
+        }
+        _ => None,
+    }
+}
+
+const BUSY_HINT: &str = "Another program probably has the port open: a leftover screen/minicom/picocom \
+session, an IDE serial monitor, or ModemManager probing a new device.";
+const PERMISSION_HINT: &str = "You lack permission on the device node. On Linux add your user to the \
+dialout (Debian/Ubuntu) or uucp (Arch) group and log in again.";
+
 /// Explicit level for a control line
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum Toggle {
@@ -247,6 +269,22 @@ pub struct UiConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_hint_recognises_busy_and_permission_errors() {
+        use serialport::{Error, ErrorKind};
+        let busy = Error::new(ErrorKind::Io(std::io::ErrorKind::ResourceBusy), "busy");
+        assert_eq!(open_hint(&busy), Some(BUSY_HINT));
+        let busy_text = Error::new(ErrorKind::Unknown, "Device or resource busy");
+        assert_eq!(open_hint(&busy_text), Some(BUSY_HINT));
+        let denied = Error::new(
+            ErrorKind::Io(std::io::ErrorKind::PermissionDenied),
+            "Permission denied",
+        );
+        assert_eq!(open_hint(&denied), Some(PERMISSION_HINT));
+        let missing = Error::new(ErrorKind::NoDevice, "No such file or directory");
+        assert_eq!(open_hint(&missing), None);
+    }
 
     #[test]
     fn port_label_uses_the_basename_with_baud_and_framing() {
