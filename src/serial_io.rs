@@ -43,57 +43,81 @@ pub fn spawn_supervisor(
     mut rx_log: Option<LogSink>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        let mut port = Some(first_port);
+        // A missing write half on the first connection degrades to read-only
+        let write_half = first_port
+            .try_clone()
+            .map_err(|e| {
+                let _ = events.send(SerialEvent::Error(format!(
+                    "cannot clone port handle, sending disabled: {e}"
+                )));
+            })
+            .ok();
+        let mut next = Some((first_port, write_half));
         let mut reconnected = false;
         while running.load(Ordering::SeqCst) {
-            let Some(p) = port.take() else { break };
-
-            // Hand the writer its own handle to the fresh connection
-            match p.try_clone() {
-                Ok(w) => {
-                    if writer.send(WriterMsg::NewPort(w)).is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    let _ = events.send(SerialEvent::Error(format!(
-                        "cannot clone port handle, sending disabled: {e}"
-                    )));
-                }
+            let Some((port, write_half)) = next.take() else {
+                break;
+            };
+            if let Some(w) = write_half
+                && writer.send(WriterMsg::NewPort(w)).is_err()
+            {
+                break;
             }
             // Announce only once the writer can use the new connection
             if reconnected {
                 let _ = events.send(SerialEvent::Reconnected);
-                reconnected = false;
             }
 
-            let reader = spawn_reader(p, running.clone(), events.clone(), rx_log.take());
+            let reader = spawn_reader(port, running.clone(), events.clone(), rx_log.take());
             rx_log = reader.join().unwrap_or(None);
             if !running.load(Ordering::SeqCst) {
                 break;
             }
 
             // Reader exited while we are still running: the device is gone.
-            // Poll until the port can be reopened.
+            // Make the writer drop its handle, then poll until the port is back.
             let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
             if writer.send(WriterMsg::Disconnected(ack_tx)).is_err() {
                 break;
             }
             let _ = ack_rx.recv_timeout(DISCONNECT_ACK_TIMEOUT);
-            let mut ticks = 0u32;
-            while running.load(Ordering::SeqCst) && port.is_none() {
-                std::thread::sleep(RECONNECT_POLL);
-                ticks += 1;
-                if !ticks.is_multiple_of(RECONNECT_RETRY_TICKS) {
-                    continue;
-                }
-                if let Ok(p) = settings.open() {
-                    port = Some(p);
-                    reconnected = true;
-                }
-            }
+            next = wait_for_port(&settings, &running, &events).map(|(p, w)| (p, Some(w)));
+            reconnected = true;
         }
     })
+}
+
+/// Poll until the port reopens with a usable write half, or until shutdown.
+/// A port that reopens but cannot be cloned is dropped and retried: the
+/// device is most likely still enumerating.
+fn wait_for_port(
+    settings: &PortSettings,
+    running: &AtomicBool,
+    events: &mpsc::UnboundedSender<SerialEvent>,
+) -> Option<(Box<dyn SerialPort>, Box<dyn SerialPort>)> {
+    let mut ticks = 0u32;
+    let mut clone_warned = false;
+    while running.load(Ordering::SeqCst) {
+        std::thread::sleep(RECONNECT_POLL);
+        ticks += 1;
+        if !ticks.is_multiple_of(RECONNECT_RETRY_TICKS) {
+            continue;
+        }
+        let Ok(port) = settings.open() else {
+            continue;
+        };
+        match port.try_clone() {
+            Ok(write_half) => return Some((port, write_half)),
+            Err(e) if !clone_warned => {
+                clone_warned = true;
+                let _ = events.send(SerialEvent::Error(format!(
+                    "port reopened but handle cannot be cloned, retrying: {e}"
+                )));
+            }
+            Err(_) => {}
+        }
+    }
+    None
 }
 
 /// Reads from the port until shutdown or a fatal error. Returns the RX log
@@ -179,6 +203,40 @@ pub fn spawn_writer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serialport::{DataBits, FlowControl, Parity, StopBits};
+
+    fn settings_for(name: String) -> PortSettings {
+        PortSettings {
+            name,
+            baud: 115_200,
+            data_bits: DataBits::Eight,
+            parity: Parity::None,
+            stop_bits: StopBits::One,
+            flow_control: FlowControl::None,
+            dtr: None,
+            rts: None,
+        }
+    }
+
+    #[test]
+    fn wait_for_port_gives_up_on_shutdown() {
+        let settings = settings_for("/nonexistent/port".to_string());
+        let (events, _rx) = mpsc::unbounded_channel();
+        assert!(wait_for_port(&settings, &AtomicBool::new(false), &events).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_for_port_returns_port_with_write_half() {
+        let (master, slave) = serialport::TTYPort::pair().expect("pty pair");
+        let settings = settings_for(slave.name().expect("pty slave has a path"));
+        drop(slave);
+        let (events, _rx) = mpsc::unbounded_channel();
+
+        let reopened = wait_for_port(&settings, &AtomicBool::new(true), &events);
+        assert!(reopened.is_some(), "pty slave must be reopenable");
+        drop(master);
+    }
 
     #[test]
     fn writer_reports_not_connected_after_disconnect() {
