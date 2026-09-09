@@ -200,7 +200,7 @@ impl LineAssembler {
     }
 }
 
-fn timestamp() -> String {
+pub fn timestamp() -> String {
     format!("[{}] ", Local::now().format("%Y-%m-%d %H:%M:%S%.3f"))
 }
 

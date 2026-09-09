@@ -1,7 +1,7 @@
 use ratatui::widgets::ListState;
 use std::collections::VecDeque;
 
-use super::line_assembler::LineAssembler;
+use super::line_assembler::{LineAssembler, timestamp};
 
 const MAX_OUTPUT_LINES: usize = 1000;
 
@@ -34,6 +34,7 @@ pub struct AppState {
     pub auto_scroll: bool,
     pub connected: bool,
     pub unseen_lines: usize, // Lines received while not following the output
+    pub show_ts: bool,
     pub port_label: String,
     pub line_ending_label: &'static str,
     pub needs_render: bool, // Optimization: only render when needed
@@ -62,6 +63,7 @@ impl AppState {
             auto_scroll: true,
             connected: true,
             unseen_lines: 0,
+            show_ts: timestamps,
             port_label,
             line_ending_label,
             needs_render: true,
@@ -95,6 +97,11 @@ impl AppState {
 
     /// Push a line describing data that was just transmitted.
     pub fn add_tx(&mut self, text: String) {
+        let text = if self.show_ts {
+            format!("{}{text}", timestamp())
+        } else {
+            text
+        };
         self.push_line(LineKind::Tx, text);
     }
 

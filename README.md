@@ -19,6 +19,7 @@ Most terminal-based serial monitors are annoying to use - they have clunky inter
 - **Sane defaults**: 115200 baud, 8 data bits, no parity, 1 stop bit
 - **Hex mode**: View binary data as hex bytes
 - **Clean text**: ANSI colour codes from firmware logs are stripped (keep them with `--raw`)
+- **Local echo**: `--echo` shows what you sent, for devices that do not echo
 - **Logging**: Save RX/TX data with timestamps
 - **Fast**: Built in Rust, handles high baud rates smoothly
 
@@ -67,6 +68,7 @@ Options:
       --rts <on|off>       Set the RTS line after opening
       --hex                Display data as hex
       --raw                Keep ANSI escape sequences instead of stripping them
+  -e, --echo               Show sent lines in the output, prefixed with "> "
       --log <FILE>         Log received data
       --tx-log <FILE>      Log transmitted data
   -t, --timestamps         Add timestamps to display and logs (alias: --log-ts)

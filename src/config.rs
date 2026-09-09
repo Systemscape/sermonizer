@@ -216,5 +216,7 @@ pub struct UiConfig {
     pub show_ts: bool,
     /// Keep ANSI escape sequences in the display instead of stripping them
     pub raw: bool,
+    /// Show transmitted lines in the output
+    pub echo: bool,
     pub port_label: String,
 }

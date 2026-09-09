@@ -303,7 +303,7 @@ fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
     app_state.push_history(input.clone());
 
     // Send input and line ending as a single write
-    let mut bytes = input.into_bytes();
+    let mut bytes = input.clone().into_bytes();
     bytes.extend_from_slice(ui_config.line_ending.bytes());
     if bytes.is_empty() {
         return;
@@ -311,6 +311,8 @@ fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
 
     if ui_config.writer.send(WriterMsg::Data(bytes)).is_err() {
         app_state.add_notice("[sermonizer] writer stopped, input dropped".to_string());
+    } else if ui_config.echo {
+        app_state.add_tx(input);
     }
 }
 
@@ -329,9 +331,31 @@ mod tests {
             hex: false,
             show_ts: false,
             raw: false,
+            echo: false,
             port_label: String::new(),
         };
         (config, writer_rx)
+    }
+
+    #[test]
+    fn echo_shows_sent_lines_as_tx() {
+        let (mut config, _writer_rx) = test_config();
+        config.echo = true;
+        let mut state = AppState::new(false, false, true, String::new(), "LF");
+        handle_key_event(KeyEvent::from(KeyCode::Char('h')), &mut state, &config);
+        handle_key_event(KeyEvent::from(KeyCode::Char('i')), &mut state, &config);
+        handle_key_event(KeyEvent::from(KeyCode::Enter), &mut state, &config);
+        assert_eq!(state.output_lines[0].kind, LineKind::Tx);
+        assert_eq!(state.output_lines[0].text, "hi");
+    }
+
+    #[test]
+    fn without_echo_sent_lines_are_not_shown() {
+        let (config, _writer_rx) = test_config();
+        let mut state = AppState::new(false, false, true, String::new(), "LF");
+        handle_key_event(KeyEvent::from(KeyCode::Char('h')), &mut state, &config);
+        handle_key_event(KeyEvent::from(KeyCode::Enter), &mut state, &config);
+        assert!(state.output_lines.is_empty());
     }
 
     #[test]

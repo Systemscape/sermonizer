@@ -82,6 +82,10 @@ struct Args {
     #[arg(long)]
     raw: bool,
 
+    /// Show what you send in the output, prefixed with "> "
+    #[arg(short = 'e', long)]
+    echo: bool,
+
     /// Just list ports and exit
     #[arg(long)]
     list: bool,
@@ -132,6 +136,9 @@ async fn main() -> Result<()> {
     }
     if args.raw {
         println!("ANSI escapes: kept");
+    }
+    if args.echo {
+        println!("Local echo: ON");
     }
     if args.timestamps {
         println!("Timestamps: ON");
@@ -223,6 +230,7 @@ async fn main() -> Result<()> {
         hex: args.hex,
         show_ts: args.timestamps,
         raw: args.raw,
+        echo: args.echo,
         port_label: format!("{port_name} @ {baud}"),
     };
 
