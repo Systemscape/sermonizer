@@ -1,0 +1,19 @@
+src/serial_io.rs
+  s_5e0bd8aca256d6::t_6908e7b0f38292 141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d49def1a7459932f50ac991752f58b33cdb317af",
+  "prompts": {},
+  "sessions": {
+    "s_5e0bd8aca256d6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08577-e457-7061-ada4-e50e2878fa9b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
