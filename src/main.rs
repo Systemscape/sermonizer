@@ -87,6 +87,10 @@ struct Args {
     #[arg(short = 'e', long)]
     echo: bool,
 
+    /// Wrap long lines instead of clipping them (toggle at runtime with Ctrl+T)
+    #[arg(short = 'w', long)]
+    wrap: bool,
+
     /// Just list ports and exit
     #[arg(long)]
     list: bool,
@@ -235,6 +239,7 @@ async fn main() -> Result<()> {
         show_ts: args.timestamps,
         raw: args.raw,
         echo: args.echo,
+        wrap: args.wrap,
         port_label: port_label(&port_name, baud, &framing),
     };
 

@@ -1,4 +1,5 @@
 use super::app_state::{AppState, LineKind, OutputLine};
+use ratatui::text::Text;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
@@ -21,15 +22,23 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
         .split(f.area());
 
     // Serial monitor output - optimize by avoiding allocations where possible
+    // Lines are clipped at the border unless wrapping is on
+    let wrap_width = app_state
+        .wrap
+        .then(|| chunks[0].width.saturating_sub(2) as usize);
     let mut output_items: Vec<ListItem> = app_state
         .output_lines
         .iter()
-        .map(|line| ListItem::new(output_line(line)))
+        .map(|line| ListItem::new(output_line(line, wrap_width)))
         .collect();
 
     // Show the line still being received below the completed output
     if let Some(partial) = app_state.assembler.partial_display() {
-        output_items.push(ListItem::new(partial));
+        let lines: Vec<Line> = wrap_text(&partial, wrap_width)
+            .into_iter()
+            .map(|s| Line::raw(s.to_string()))
+            .collect();
+        output_items.push(ListItem::new(Text::from(lines)));
     }
 
     let item_count = output_items.len();
@@ -83,20 +92,61 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     f.render_widget(status_line(app_state), chunks[2]);
 }
 
-fn output_line(line: &OutputLine) -> Line<'_> {
-    match line.kind {
-        LineKind::Rx => Line::raw(line.text.as_str()),
-        LineKind::Tx => Line::from(vec![
-            Span::styled(TX_PREFIX, Style::default().fg(Color::Cyan)),
-            Span::styled(line.text.as_str(), Style::default().fg(Color::Cyan)),
-        ]),
-        LineKind::Notice => Line::styled(
-            line.text.as_str(),
+fn output_line(line: &OutputLine, wrap_width: Option<usize>) -> Text<'_> {
+    let (style, prefix) = match line.kind {
+        LineKind::Rx => (Style::default(), ""),
+        LineKind::Tx => (Style::default().fg(Color::Cyan), TX_PREFIX),
+        LineKind::Notice => (
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::ITALIC),
+            "",
         ),
+    };
+    // The prefix takes room on the first row only
+    let first_width = wrap_width.map(|w| w.saturating_sub(prefix.len()).max(1));
+    let mut rows = wrap_text(&line.text, first_width).into_iter();
+    let mut lines: Vec<Line> = Vec::new();
+    if let Some(first) = rows.next() {
+        lines.push(Line::from(vec![
+            Span::styled(prefix, style),
+            Span::styled(first, style),
+        ]));
     }
+    if let Some(width) = wrap_width {
+        let rest: String = rows.collect();
+        if !rest.is_empty() {
+            lines.extend(
+                wrap_text(&rest, Some(width))
+                    .into_iter()
+                    .map(|s| Line::styled(s.to_string(), style)),
+            );
+        }
+    }
+    Text::from(lines)
+}
+
+/// Split text into rows no wider than `width` display columns. Without a
+/// width the text is returned as a single row. Wide characters that would
+/// straddle the edge start the next row.
+fn wrap_text(text: &str, width: Option<usize>) -> Vec<&str> {
+    let Some(width) = width.filter(|w| *w > 0) else {
+        return vec![text];
+    };
+    let mut rows = Vec::new();
+    let mut row_start = 0;
+    let mut row_width = 0;
+    for (idx, c) in text.char_indices() {
+        let w = c.width().unwrap_or(0);
+        if row_width + w > width && idx > row_start {
+            rows.push(&text[row_start..idx]);
+            row_start = idx;
+            row_width = 0;
+        }
+        row_width += w;
+    }
+    rows.push(&text[row_start..]);
+    rows
 }
 
 fn status_line(app_state: &AppState) -> Paragraph<'_> {
@@ -126,6 +176,9 @@ fn status_line(app_state: &AppState) -> Paragraph<'_> {
     }
 
     spans.push(Span::raw(format!(" | {}", app_state.line_ending_label)));
+    if app_state.wrap {
+        spans.push(Span::raw(" | wrap"));
+    }
 
     if app_state.pending_literal {
         spans.push(Span::styled(
@@ -134,10 +187,56 @@ fn status_line(app_state: &AppState) -> Paragraph<'_> {
         ));
     } else {
         spans.push(Span::styled(
-            " | Enter send, Up/Down history, Shift+Up/Down PgUp/PgDn scroll, Shift+End follow, Ctrl+L clear, Ctrl+V literal, Ctrl+C quit",
+            " | Enter send, Up/Down history, Shift+Up/Down PgUp/PgDn scroll, Shift+End follow, Ctrl+T wrap, Ctrl+L clear, Ctrl+V literal, Ctrl+C quit",
             Style::default().fg(Color::DarkGray),
         ));
     }
 
     Paragraph::new(Line::from(spans))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_text_splits_at_display_width() {
+        assert_eq!(wrap_text("abcdefgh", Some(3)), vec!["abc", "def", "gh"]);
+        assert_eq!(wrap_text("abc", Some(3)), vec!["abc"]);
+        assert_eq!(wrap_text("", Some(3)), vec![""]);
+    }
+
+    #[test]
+    fn wrap_text_keeps_wide_characters_whole() {
+        // Each CJK character is two columns wide
+        assert_eq!(wrap_text("a日本", Some(3)), vec!["a日", "本"]);
+    }
+
+    #[test]
+    fn wrap_text_without_width_returns_one_row() {
+        assert_eq!(wrap_text("anything at all", None), vec!["anything at all"]);
+        assert_eq!(wrap_text("x", Some(0)), vec!["x"]);
+    }
+
+    #[test]
+    fn wrapped_short_lines_take_a_single_row() {
+        for kind in [LineKind::Rx, LineKind::Tx, LineKind::Notice] {
+            let line = OutputLine {
+                kind,
+                text: "short".to_string(),
+            };
+            assert_eq!(output_line(&line, Some(40)).lines.len(), 1, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn tx_prefix_takes_room_on_the_first_row_only() {
+        let line = OutputLine {
+            kind: LineKind::Tx,
+            text: "abcdef".to_string(),
+        };
+        let text = output_line(&line, Some(4));
+        let rows: Vec<String> = text.lines.iter().map(ToString::to_string).collect();
+        assert_eq!(rows, vec!["> ab", "cdef"]);
+    }
 }

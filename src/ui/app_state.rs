@@ -37,6 +37,7 @@ pub struct AppState {
     pub connected: bool,
     pub unseen_lines: usize, // Lines received while not following the output
     pub show_ts: bool,
+    pub wrap: bool, // Wrap long output lines instead of clipping them
     pub port_label: String,
     pub line_ending_label: &'static str,
     pub needs_render: bool, // Optimization: only render when needed
@@ -68,6 +69,7 @@ impl AppState {
             connected: true,
             unseen_lines: 0,
             show_ts: timestamps,
+            wrap: false,
             port_label,
             line_ending_label,
             needs_render: true,
@@ -205,6 +207,11 @@ impl AppState {
     pub fn enable_auto_scroll(&mut self) {
         self.auto_scroll = true;
         self.unseen_lines = 0;
+        self.needs_render = true;
+    }
+
+    pub fn toggle_wrap(&mut self) {
+        self.wrap = !self.wrap;
         self.needs_render = true;
     }
 

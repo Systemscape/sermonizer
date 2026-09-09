@@ -239,6 +239,8 @@ pub struct UiConfig {
     pub raw: bool,
     /// Show transmitted lines in the output
     pub echo: bool,
+    /// Start with long lines wrapped instead of clipped
+    pub wrap: bool,
     pub port_label: String,
 }
 

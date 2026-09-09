@@ -34,6 +34,7 @@ pub async fn run_ui<B: Backend>(
         ui_config.port_label.clone(),
         ui_config.line_ending.describe(),
     );
+    app_state.wrap = ui_config.wrap;
     let (mut input_rx, input_handle) = spawn_input_thread(ui_config.running.clone());
 
     // Run the loop in a block so the input thread is stopped and joined on
@@ -210,6 +211,9 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
             app_state.pending_literal = true;
             app_state.needs_render = true;
         }
+        KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app_state.toggle_wrap();
+        }
         KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app_state.input_home();
         }
@@ -352,6 +356,7 @@ mod tests {
             show_ts: false,
             raw: false,
             echo: false,
+            wrap: false,
             port_label: String::new(),
         };
         (config, writer_rx)
