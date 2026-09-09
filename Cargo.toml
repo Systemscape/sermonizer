@@ -9,7 +9,6 @@ authors = [
 categories = ["command-line-utilities", "development-tools", "embedded"]
 description = "A simple, clean serial monitor with a clean terminal UI for embedded development"
 license = "MIT"
-readme = "README.md"
 repository = "https://github.com/systemscape/sermonizer"
 keywords = ["serial", "monitor", "embedded", "terminal", "tui"]
 
@@ -19,8 +18,8 @@ clap = { version = "4.5", features = ["derive"] }
 ctrlc = "3.4"
 ratatui = "0.29"
 serialport = "4.3"
-tokio = { version = "1.0", features = ["rt-multi-thread", "sync", "time", "macros"] }
-chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "sync", "macros"] }
+chrono = "0.4"
 unicode-width = "0.2"
 
 # The profile that 'dist' will build with
