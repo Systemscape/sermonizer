@@ -96,6 +96,17 @@ impl AppState {
         *self.list_state.offset_mut() = offset.saturating_sub(overflow);
     }
 
+    /// Index of the bottom rendered row while following: the partial line,
+    /// when shown, sits below the last complete line
+    fn follow_position(&self) -> usize {
+        let last = self.output_lines.len() - 1;
+        if self.assembler.has_partial() {
+            last + 1
+        } else {
+            last
+        }
+    }
+
     pub fn scroll_up(&mut self) {
         if self.output_lines.is_empty() {
             return;
@@ -106,7 +117,7 @@ impl AppState {
         let selected = self
             .list_state
             .selected()
-            .unwrap_or(self.output_lines.len() - 1);
+            .unwrap_or_else(|| self.follow_position());
         if selected > 0 {
             self.list_state.select(Some(selected - 1));
             self.needs_render = true;
@@ -156,11 +167,12 @@ impl AppState {
             return;
         }
         self.auto_scroll = false;
+        let last = self.output_lines.len() - 1;
         let current = self
             .list_state
             .selected()
-            .unwrap_or(self.output_lines.len().saturating_sub(1));
-        let new_selected = current.saturating_sub(page_size);
+            .unwrap_or_else(|| self.follow_position());
+        let new_selected = current.saturating_sub(page_size).min(last);
         self.list_state.select(Some(new_selected));
         self.needs_render = true;
     }
@@ -336,6 +348,22 @@ mod tests {
         }
         assert_eq!(state.list_state.selected(), Some(500));
         assert_eq!(state.list_state.offset(), 490);
+    }
+
+    #[test]
+    fn scroll_up_from_follow_lands_on_last_complete_line_above_partial() {
+        let mut state = state_with_lines(50);
+        state.add_data(b"partial");
+        state.scroll_up();
+        assert_eq!(state.list_state.selected(), Some(49));
+    }
+
+    #[test]
+    fn page_up_from_follow_counts_the_partial_row() {
+        let mut state = state_with_lines(50);
+        state.add_data(b"partial");
+        state.scroll_page_up(10);
+        assert_eq!(state.list_state.selected(), Some(40));
     }
 
     #[test]

@@ -154,6 +154,15 @@ impl LineAssembler {
         done
     }
 
+    /// Whether an unfinished line is currently shown below the output.
+    pub fn has_partial(&self) -> bool {
+        if self.hex {
+            !self.hex_row.is_empty()
+        } else {
+            !self.partial.is_empty()
+        }
+    }
+
     /// The unfinished line, for display below the completed output.
     pub fn partial_display(&self) -> Option<String> {
         if self.hex {
