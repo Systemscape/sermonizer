@@ -144,12 +144,17 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
     if app_state.pending_literal {
         app_state.pending_literal = false;
         app_state.needs_render = true;
-        if let Some(byte) = literal_byte(key) {
-            if ui_config.writer.send(WriterMsg::Data(vec![byte])).is_err() {
-                app_state.add_notice("[sermonizer] writer stopped, input dropped".to_string());
-            } else {
-                app_state.add_notice(format!("[sermonizer] sent control byte 0x{byte:02X}"));
-            }
+        let Some(byte) = literal_byte(key) else {
+            app_state.add_notice(
+                "[sermonizer] no literal byte for that key, nothing sent (use Ctrl+A..Z, Esc, Enter or Tab)"
+                    .to_string(),
+            );
+            return;
+        };
+        if ui_config.writer.send(WriterMsg::Data(vec![byte])).is_err() {
+            app_state.add_notice("[sermonizer] writer stopped, input dropped".to_string());
+        } else {
+            app_state.add_notice(format!("[sermonizer] sent control byte 0x{byte:02X}"));
         }
         return;
     }
@@ -254,6 +259,40 @@ fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::LineEnding;
+
+    fn test_config() -> (UiConfig, std::sync::mpsc::Receiver<WriterMsg>) {
+        let (writer, writer_rx) = std::sync::mpsc::channel();
+        let config = UiConfig {
+            running: Arc::new(AtomicBool::new(true)),
+            line_ending: LineEnding::Nl,
+            writer,
+            hex: false,
+            show_ts: false,
+            port_label: String::new(),
+        };
+        (config, writer_rx)
+    }
+
+    #[test]
+    fn literal_mode_reports_keys_without_a_mapping() {
+        let (config, writer_rx) = test_config();
+        let mut state = AppState::new(false, false, String::new(), "LF");
+        handle_key_event(
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
+            &mut state,
+            &config,
+        );
+        assert!(state.pending_literal);
+        handle_key_event(KeyEvent::from(KeyCode::Char('x')), &mut state, &config);
+        assert!(!state.pending_literal);
+        assert!(writer_rx.try_recv().is_err(), "nothing must be sent");
+        assert!(
+            state.output_lines[0].contains("nothing sent"),
+            "{:?}",
+            state.output_lines
+        );
+    }
 
     #[test]
     fn disconnect_finishes_partial_output_before_notices() {
