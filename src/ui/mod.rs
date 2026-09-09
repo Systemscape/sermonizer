@@ -65,14 +65,19 @@ pub async fn run_ui<B: Backend>(
             // Terminal events from the blocking input thread
             input = input_rx.recv() => {
                 match input {
-                    Some(Event::Key(k)) if k.kind == KeyEventKind::Press => {
-                        handle_key_event(k, &mut app_state, &ui_config);
-                    }
-                    Some(Event::Resize(_, _)) => app_state.needs_render = true,
-                    Some(_) => {}
+                    Some(ev) => handle_input_event(ev, &mut app_state, &ui_config),
                     None => app_state.quit(),
                 }
             }
+        }
+
+        // Fold everything already queued into the same frame: a fast serial
+        // stream arrives in many small reads and must not cost a draw each
+        while let Ok(event) = serial_rx.try_recv() {
+            handle_serial_event(event, &mut app_state);
+        }
+        while let Ok(ev) = input_rx.try_recv() {
+            handle_input_event(ev, &mut app_state, &ui_config);
         }
     }
 
@@ -98,6 +103,16 @@ fn spawn_input_thread(
         }
     });
     (rx, handle)
+}
+
+fn handle_input_event(event: Event, app_state: &mut AppState, ui_config: &UiConfig) {
+    match event {
+        Event::Key(k) if k.kind == KeyEventKind::Press => {
+            handle_key_event(k, app_state, ui_config);
+        }
+        Event::Resize(_, _) => app_state.needs_render = true,
+        _ => {}
+    }
 }
 
 fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
