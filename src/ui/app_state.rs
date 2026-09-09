@@ -281,6 +281,56 @@ impl AppState {
         }
     }
 
+    pub fn input_home(&mut self) {
+        if self.input_cursor != 0 {
+            self.input_cursor = 0;
+            self.needs_render = true;
+        }
+    }
+
+    pub fn input_end(&mut self) {
+        let end = self.input_line.chars().count();
+        if self.input_cursor != end {
+            self.input_cursor = end;
+            self.needs_render = true;
+        }
+    }
+
+    pub fn kill_to_start(&mut self) {
+        let byte_idx = self.input_byte_index(self.input_cursor);
+        if byte_idx > 0 {
+            self.input_line.drain(..byte_idx);
+            self.input_cursor = 0;
+            self.needs_render = true;
+        }
+    }
+
+    pub fn kill_to_end(&mut self) {
+        let byte_idx = self.input_byte_index(self.input_cursor);
+        if byte_idx < self.input_line.len() {
+            self.input_line.truncate(byte_idx);
+            self.needs_render = true;
+        }
+    }
+
+    /// Delete back to the start of the previous word, like readline's Ctrl+W
+    pub fn delete_word_back(&mut self) {
+        let end = self.input_byte_index(self.input_cursor);
+        let head = &self.input_line[..end];
+        let trimmed = head.trim_end_matches(char::is_whitespace);
+        let start = trimmed
+            .char_indices()
+            .rev()
+            .find(|(_, c)| c.is_whitespace())
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        if start < end {
+            let removed = self.input_line[start..end].chars().count();
+            self.input_line.drain(start..end);
+            self.input_cursor -= removed;
+            self.needs_render = true;
+        }
+    }
+
     pub fn clear_input(&mut self) -> String {
         self.input_cursor = 0;
         let input = std::mem::take(&mut self.input_line);
@@ -364,6 +414,51 @@ mod tests {
         state.add_data(b"partial");
         state.scroll_page_up(10);
         assert_eq!(state.list_state.selected(), Some(40));
+    }
+
+    fn state_with_input(text: &str) -> AppState {
+        let mut state = AppState::new(false, false, true, String::new(), "LF");
+        for c in text.chars() {
+            state.update_input(c);
+        }
+        state
+    }
+
+    #[test]
+    fn home_and_end_move_the_input_cursor() {
+        let mut state = state_with_input("grün ok");
+        state.input_home();
+        assert_eq!(state.input_cursor, 0);
+        state.update_input('>');
+        assert_eq!(state.input_line, ">grün ok");
+        state.input_end();
+        state.update_input('<');
+        assert_eq!(state.input_line, ">grün ok<");
+    }
+
+    #[test]
+    fn kill_to_start_and_end_split_at_the_cursor() {
+        let mut state = state_with_input("abcdef");
+        state.move_cursor_left();
+        state.move_cursor_left();
+        state.kill_to_end();
+        assert_eq!(state.input_line, "abcd");
+        assert_eq!(state.input_cursor, 4);
+        state.move_cursor_left();
+        state.kill_to_start();
+        assert_eq!(state.input_line, "d");
+        assert_eq!(state.input_cursor, 0);
+    }
+
+    #[test]
+    fn delete_word_back_removes_trailing_spaces_and_one_word() {
+        let mut state = state_with_input("AT+CWJAP  ssid   ");
+        state.delete_word_back();
+        assert_eq!(state.input_line, "AT+CWJAP  ");
+        state.delete_word_back();
+        assert_eq!(state.input_line, "");
+        state.delete_word_back();
+        assert_eq!(state.input_line, "");
     }
 
     #[test]

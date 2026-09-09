@@ -114,7 +114,7 @@ fn status_line(app_state: &AppState) -> Paragraph<'_> {
         ));
     } else {
         spans.push(Span::styled(
-            " | Enter send · ↑↓ history · Shift+↑↓/PgUp/PgDn scroll · End follow · Ctrl+L clear · Ctrl+V literal · Ctrl+C quit",
+            " | Enter send · ↑↓ history · Shift+↑↓/PgUp/PgDn scroll · Shift+End follow · Ctrl+L clear · Ctrl+V literal · Ctrl+C quit",
             Style::default().fg(Color::DarkGray),
         ));
     }

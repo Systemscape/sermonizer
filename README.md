@@ -78,8 +78,10 @@ Options:
 - **Type and press Enter**: Send data to device
 - **Paste**: Multi-line text is sent line by line; an unfinished last line stays in the input box
 - **↑↓**: Browse send history
+- **Home / End, Ctrl+A / Ctrl+E**: Jump to start / end of the input line
+- **Ctrl+U / Ctrl+K / Ctrl+W**: Delete to start of line / to end of line / previous word
 - **Shift+↑↓ / Page Up/Down**: Scroll through output
-- **Home / End**: Jump to top / bottom (End resumes auto-scroll)
+- **Shift+Home / Shift+End** (or Ctrl+Home / Ctrl+End): Jump to top / bottom of output (End resumes auto-scroll)
 - **Ctrl+L**: Clear output
 - **Ctrl+V, then a key**: Send that key as a raw control byte (e.g. Ctrl+V Ctrl+C sends 0x03)
 - **Esc**: Clear input line

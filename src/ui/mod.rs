@@ -201,6 +201,21 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
             app_state.pending_literal = true;
             app_state.needs_render = true;
         }
+        KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app_state.input_home();
+        }
+        KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app_state.input_end();
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app_state.kill_to_start();
+        }
+        KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app_state.kill_to_end();
+        }
+        KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app_state.delete_word_back();
+        }
         KeyCode::Esc => {
             app_state.clear_input();
         }
@@ -244,11 +259,25 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
         KeyCode::PageDown => {
             app_state.scroll_page_down(10);
         }
-        KeyCode::Home => {
+        KeyCode::Home
+            if key
+                .modifiers
+                .intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL) =>
+        {
             app_state.scroll_to_home();
         }
-        KeyCode::End => {
+        KeyCode::End
+            if key
+                .modifiers
+                .intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL) =>
+        {
             app_state.scroll_to_bottom();
+        }
+        KeyCode::Home => {
+            app_state.input_home();
+        }
+        KeyCode::End => {
+            app_state.input_end();
         }
         _ => {}
     }
