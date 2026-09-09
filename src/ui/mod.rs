@@ -159,7 +159,7 @@ fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
             }
             app_state.set_connected(false);
             app_state.add_notice(format!(
-                "[sermonizer] device disconnected: {reason} — reconnecting (Ctrl+C to quit)"
+                "[sermonizer] device disconnected: {reason} - reconnecting (Ctrl+C to quit)"
             ));
         }
         SerialEvent::Reconnected => {

@@ -7,7 +7,8 @@ mod ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 use config::{
-    DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, Toggle, UiConfig,
+    DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, Toggle,
+    UiConfig, port_label,
 };
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
@@ -115,11 +116,14 @@ async fn main() -> Result<()> {
     // Decide on baud
     let baud = args.baud;
     println!("Baud: {baud}");
-    println!(
-        "Framing: {}{}{}, flow control: {}",
+    let framing = format!(
+        "{}{}{}",
         args.data_bits.label(),
         args.parity.label(),
-        args.stop_bits.label(),
+        args.stop_bits.label()
+    );
+    println!(
+        "Framing: {framing}, flow control: {}",
         args.flow_control.label()
     );
 
@@ -231,7 +235,7 @@ async fn main() -> Result<()> {
         show_ts: args.timestamps,
         raw: args.raw,
         echo: args.echo,
-        port_label: format!("{port_name} @ {baud}"),
+        port_label: port_label(&port_name, baud, &framing),
     };
 
     let ui_res = run_ui(&mut terminal, ui_rx, event_rx, ui_config).await;

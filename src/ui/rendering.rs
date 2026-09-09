@@ -102,6 +102,8 @@ fn output_line(line: &OutputLine) -> Line<'_> {
 fn status_line(app_state: &AppState) -> Paragraph<'_> {
     let mut spans: Vec<Span> = Vec::new();
 
+    // Segments are ordered by importance: the bar is clipped from the right
+    // on narrow terminals, so key hints go last
     if app_state.connected {
         spans.push(Span::styled(
             format!(" {} ", app_state.port_label),
@@ -109,21 +111,21 @@ fn status_line(app_state: &AppState) -> Paragraph<'_> {
         ));
     } else {
         spans.push(Span::styled(
-            " DISCONNECTED - reconnecting… ",
+            " DISCONNECTED - reconnecting... ",
             Style::default().fg(Color::White).bg(Color::Red),
         ));
     }
 
-    spans.push(Span::raw(format!(" {} | ", app_state.line_ending_label)));
-
     if app_state.auto_scroll {
-        spans.push(Span::raw("follow"));
+        spans.push(Span::raw(" follow"));
     } else {
         spans.push(Span::styled(
-            format!("scroll ({} new)", app_state.unseen_lines),
+            format!(" scroll ({} new)", app_state.unseen_lines),
             Style::default().fg(Color::Yellow),
         ));
     }
+
+    spans.push(Span::raw(format!(" | {}", app_state.line_ending_label)));
 
     if app_state.pending_literal {
         spans.push(Span::styled(
@@ -132,7 +134,7 @@ fn status_line(app_state: &AppState) -> Paragraph<'_> {
         ));
     } else {
         spans.push(Span::styled(
-            " | Enter send · ↑↓ history · Shift+↑↓/PgUp/PgDn scroll · Shift+End follow · Ctrl+L clear · Ctrl+V literal · Ctrl+C quit",
+            " | Enter send, Up/Down history, Shift+Up/Down PgUp/PgDn scroll, Shift+End follow, Ctrl+L clear, Ctrl+V literal, Ctrl+C quit",
             Style::default().fg(Color::DarkGray),
         ));
     }

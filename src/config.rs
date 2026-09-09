@@ -208,6 +208,27 @@ impl LineEnding {
     }
 }
 
+/// Longest port name shown in the status bar before it is cut from the left
+const PORT_LABEL_MAX: usize = 28;
+
+/// Compact status-bar label: the port's basename (by-id paths and Windows
+/// COM names both survive), cut from the left when still too long, followed
+/// by baud and framing.
+pub fn port_label(port_name: &str, baud: u32, framing: &str) -> String {
+    let name = std::path::Path::new(port_name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(port_name);
+    let chars = name.chars().count();
+    let name = if chars > PORT_LABEL_MAX {
+        let tail: String = name.chars().skip(chars - (PORT_LABEL_MAX - 3)).collect();
+        format!("...{tail}")
+    } else {
+        name.to_string()
+    };
+    format!("{name} {baud} {framing}")
+}
+
 pub struct UiConfig {
     pub running: Arc<AtomicBool>,
     pub line_ending: LineEnding,
@@ -219,4 +240,26 @@ pub struct UiConfig {
     /// Show transmitted lines in the output
     pub echo: bool,
     pub port_label: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn port_label_uses_the_basename_with_baud_and_framing() {
+        assert_eq!(
+            port_label("/dev/ttyUSB0", 115_200, "8N1"),
+            "ttyUSB0 115200 8N1"
+        );
+        assert_eq!(port_label("COM3", 9600, "7E1"), "COM3 9600 7E1");
+    }
+
+    #[test]
+    fn port_label_cuts_long_names_from_the_left() {
+        let name = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0";
+        let label = port_label(name, 115_200, "8N1");
+        assert_eq!(label, "...ontroller_0001-if00-port0 115200 8N1");
+        assert!(label.len() <= PORT_LABEL_MAX + " 115200 8N1".len());
+    }
 }
