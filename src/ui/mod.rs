@@ -150,7 +150,7 @@ fn handle_serial_event(event: SerialEvent, app_state: &mut AppState) {
         }
         SerialEvent::Disconnected(reason) => {
             if let Some(line) = app_state.assembler.finish() {
-                app_state.add_notice(line);
+                app_state.add_rx(line);
             }
             app_state.set_connected(false);
             app_state.add_notice(format!(
@@ -179,7 +179,7 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
         if ui_config.writer.send(WriterMsg::Data(vec![byte])).is_err() {
             app_state.add_notice("[sermonizer] writer stopped, input dropped".to_string());
         } else {
-            app_state.add_notice(format!("[sermonizer] sent control byte 0x{byte:02X}"));
+            app_state.add_tx(format!("<0x{byte:02X}>"));
         }
         return;
     }
@@ -318,6 +318,7 @@ fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
 mod tests {
     use super::*;
     use crate::config::LineEnding;
+    use app_state::LineKind;
 
     fn test_config() -> (UiConfig, std::sync::mpsc::Receiver<WriterMsg>) {
         let (writer, writer_rx) = std::sync::mpsc::channel();
@@ -381,7 +382,7 @@ mod tests {
         assert!(!state.pending_literal);
         assert!(writer_rx.try_recv().is_err(), "nothing must be sent");
         assert!(
-            state.output_lines[0].contains("nothing sent"),
+            state.output_lines[0].text.contains("nothing sent"),
             "{:?}",
             state.output_lines
         );
@@ -396,22 +397,24 @@ mod tests {
             assert!(!state.connected);
             assert_eq!(state.assembler.partial_display(), None);
             assert_eq!(
-                state.output_lines[0],
+                state.output_lines[0].text,
                 if hex { "62 65 66 6F 72 65" } else { "before" }
             );
-            assert!(state.output_lines[1].contains("device disconnected"));
+            assert_eq!(state.output_lines[0].kind, LineKind::Rx);
+            assert!(state.output_lines[1].text.contains("device disconnected"));
+            assert_eq!(state.output_lines[1].kind, LineKind::Notice);
 
             handle_serial_event(SerialEvent::Reconnected, &mut state);
             handle_serial_event(SerialEvent::Data(b"after\n".to_vec()), &mut state);
             assert!(state.connected);
-            assert!(state.output_lines[2].contains("device reconnected"));
+            assert!(state.output_lines[2].text.contains("device reconnected"));
             if hex {
                 assert_eq!(
                     state.assembler.partial_display().as_deref(),
                     Some("61 66 74 65 72 0A")
                 );
             } else {
-                assert_eq!(state.output_lines[3], "after");
+                assert_eq!(state.output_lines[3].text, "after");
             }
         }
     }

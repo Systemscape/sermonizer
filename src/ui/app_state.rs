@@ -5,6 +5,20 @@ use super::line_assembler::LineAssembler;
 
 const MAX_OUTPUT_LINES: usize = 1000;
 
+/// Origin of an output line, used to style it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineKind {
+    Rx,
+    Tx,
+    Notice,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputLine {
+    pub kind: LineKind,
+    pub text: String,
+}
+
 pub struct AppState {
     pub input_line: String,
     pub input_cursor: usize, // Cursor position as char index into input_line
@@ -12,7 +26,7 @@ pub struct AppState {
     pub history_pos: Option<usize>,
     pub draft: String,         // Unsent input stashed while browsing history
     pub pending_literal: bool, // Next key is sent as a raw control byte
-    pub output_lines: VecDeque<String>,
+    pub output_lines: VecDeque<OutputLine>,
     pub assembler: LineAssembler,
     pub list_state: ListState,
     pub auto_scroll_state: ListState,
@@ -59,7 +73,11 @@ impl AppState {
         if !self.auto_scroll {
             self.unseen_lines += completed.len();
         }
-        self.output_lines.extend(completed);
+        self.output_lines
+            .extend(completed.into_iter().map(|text| OutputLine {
+                kind: LineKind::Rx,
+                text,
+            }));
         self.trim_output();
         // The partial line is displayed too, so any data changes the view
         self.needs_render = true;
@@ -67,10 +85,24 @@ impl AppState {
 
     /// Push a complete status line (bypasses line assembly).
     pub fn add_notice(&mut self, message: String) {
+        self.push_line(LineKind::Notice, message);
+    }
+
+    /// Push a complete received line that bypassed line assembly.
+    pub fn add_rx(&mut self, text: String) {
+        self.push_line(LineKind::Rx, text);
+    }
+
+    /// Push a line describing data that was just transmitted.
+    pub fn add_tx(&mut self, text: String) {
+        self.push_line(LineKind::Tx, text);
+    }
+
+    fn push_line(&mut self, kind: LineKind, text: String) {
         if !self.auto_scroll {
             self.unseen_lines += 1;
         }
-        self.output_lines.push_back(message);
+        self.output_lines.push_back(OutputLine { kind, text });
         self.trim_output();
         self.needs_render = true;
     }

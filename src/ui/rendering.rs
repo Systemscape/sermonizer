@@ -1,12 +1,14 @@
-use super::app_state::AppState;
+use super::app_state::{AppState, LineKind, OutputLine};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 use unicode_width::UnicodeWidthChar;
+
+const TX_PREFIX: &str = "> ";
 
 pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     let chunks = Layout::default()
@@ -22,7 +24,7 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     let mut output_items: Vec<ListItem> = app_state
         .output_lines
         .iter()
-        .map(|line| ListItem::new(line.as_str()))
+        .map(|line| ListItem::new(output_line(line)))
         .collect();
 
     // Show the line still being received below the completed output
@@ -79,6 +81,22 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     ));
 
     f.render_widget(status_line(app_state), chunks[2]);
+}
+
+fn output_line(line: &OutputLine) -> Line<'_> {
+    match line.kind {
+        LineKind::Rx => Line::raw(line.text.as_str()),
+        LineKind::Tx => Line::from(vec![
+            Span::styled(TX_PREFIX, Style::default().fg(Color::Cyan)),
+            Span::styled(line.text.as_str(), Style::default().fg(Color::Cyan)),
+        ]),
+        LineKind::Notice => Line::styled(
+            line.text.as_str(),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::ITALIC),
+        ),
+    }
 }
 
 fn status_line(app_state: &AppState) -> Paragraph<'_> {
