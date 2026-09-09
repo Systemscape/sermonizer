@@ -69,7 +69,7 @@ Options:
       --raw                Keep ANSI escape sequences instead of stripping them
       --log <FILE>         Log received data
       --tx-log <FILE>      Log transmitted data
-      --log-ts             Add timestamps to logs and display
+  -t, --timestamps         Add timestamps to display and logs (alias: --log-ts)
       --list               List available ports
 ```
 

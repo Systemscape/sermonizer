@@ -68,9 +68,9 @@ struct Args {
     #[arg(long)]
     tx_log: Option<PathBuf>,
 
-    /// Prepend timestamps to logged and displayed lines
-    #[arg(long = "log-ts")]
-    log_ts: bool,
+    /// Prepend timestamps to displayed and logged lines
+    #[arg(short = 't', long, alias = "log-ts")]
+    timestamps: bool,
 
     /// Show RX as hex (space-separated bytes)
     #[arg(long)]
@@ -131,8 +131,8 @@ async fn main() -> Result<()> {
     if args.raw {
         println!("ANSI escapes: kept");
     }
-    if args.log_ts {
-        println!("Timestamps in logs: ON");
+    if args.timestamps {
+        println!("Timestamps: ON");
     }
 
     // Open port
@@ -156,12 +156,12 @@ async fn main() -> Result<()> {
     let rx_log = args
         .log
         .as_deref()
-        .map(|p| LogSink::open(p, "RX", args.log_ts, args.hex))
+        .map(|p| LogSink::open(p, "RX", args.timestamps, args.hex))
         .transpose()?;
     let tx_log = args
         .tx_log
         .as_deref()
-        .map(|p| LogSink::open(p, "TX", args.log_ts, false))
+        .map(|p| LogSink::open(p, "TX", args.timestamps, false))
         .transpose()?;
 
     // Handle Ctrl-C with immediate shutdown
@@ -216,7 +216,7 @@ async fn main() -> Result<()> {
         line_ending,
         writer: writer_tx.clone(),
         hex: args.hex,
-        show_ts: args.log_ts,
+        show_ts: args.timestamps,
         raw: args.raw,
         port_label: format!("{port_name} @ {baud}"),
     };
