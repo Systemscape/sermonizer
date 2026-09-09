@@ -129,11 +129,16 @@ fn handle_paste(text: &str, app_state: &mut AppState, ui_config: &UiConfig) {
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '\r' => {
-                chars.next_if_eq(&'\n');
-                handle_enter_key(app_state, ui_config);
+            '\r' | '\n' => {
+                if c == '\r' {
+                    chars.next_if_eq(&'\n');
+                }
+                // Stop at the first line that cannot be sent so the paste
+                // does not run together into one input line
+                if !handle_enter_key(app_state, ui_config) {
+                    break;
+                }
             }
-            '\n' => handle_enter_key(app_state, ui_config),
             c if c.is_control() => {}
             c => app_state.update_input(c),
         }
@@ -169,6 +174,10 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
     if app_state.pending_literal {
         app_state.pending_literal = false;
         app_state.needs_render = true;
+        if !app_state.connected {
+            app_state.add_notice("[sermonizer] not connected, nothing sent".to_string());
+            return;
+        }
         let Some(byte) = literal_byte(key) else {
             app_state.add_notice(
                 "[sermonizer] no literal byte for that key, nothing sent (use Ctrl+A..Z, Esc, Enter or Tab)"
@@ -195,7 +204,7 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
         }
         // A pasted LF arrives as Ctrl+J in raw mode
         KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            handle_enter_key(app_state, ui_config);
+            let _ = handle_enter_key(app_state, ui_config);
         }
         KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app_state.pending_literal = true;
@@ -227,7 +236,7 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
             app_state.update_input(c);
         }
         KeyCode::Enter => {
-            handle_enter_key(app_state, ui_config);
+            let _ = handle_enter_key(app_state, ui_config);
         }
         KeyCode::Backspace => {
             app_state.backspace_input();
@@ -298,7 +307,15 @@ fn literal_byte(key: KeyEvent) -> Option<u8> {
     }
 }
 
-fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
+/// Returns whether the line was handed to the writer.
+fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) -> bool {
+    if !app_state.connected {
+        app_state.add_notice(
+            "[sermonizer] not connected, input kept: press Enter again once the device is back"
+                .to_string(),
+        );
+        return false;
+    }
     let input = app_state.clear_input();
     app_state.push_history(input.clone());
 
@@ -306,14 +323,17 @@ fn handle_enter_key(app_state: &mut AppState, ui_config: &UiConfig) {
     let mut bytes = input.clone().into_bytes();
     bytes.extend_from_slice(ui_config.line_ending.bytes());
     if bytes.is_empty() {
-        return;
+        return true;
     }
 
     if ui_config.writer.send(WriterMsg::Data(bytes)).is_err() {
         app_state.add_notice("[sermonizer] writer stopped, input dropped".to_string());
-    } else if ui_config.echo {
+        return false;
+    }
+    if ui_config.echo {
         app_state.add_tx(input);
     }
+    true
 }
 
 #[cfg(test)]
@@ -356,6 +376,23 @@ mod tests {
         handle_key_event(KeyEvent::from(KeyCode::Char('h')), &mut state, &config);
         handle_key_event(KeyEvent::from(KeyCode::Enter), &mut state, &config);
         assert!(state.output_lines.is_empty());
+    }
+
+    #[test]
+    fn enter_while_disconnected_keeps_the_input() {
+        let (config, writer_rx) = test_config();
+        let mut state = AppState::new(false, false, true, String::new(), "LF");
+        state.set_connected(false);
+        handle_key_event(KeyEvent::from(KeyCode::Char('x')), &mut state, &config);
+        handle_key_event(KeyEvent::from(KeyCode::Enter), &mut state, &config);
+        assert_eq!(state.input_line, "x");
+        assert!(writer_rx.try_recv().is_err());
+        assert!(state.output_lines[0].text.contains("not connected"));
+
+        state.set_connected(true);
+        handle_key_event(KeyEvent::from(KeyCode::Enter), &mut state, &config);
+        assert!(state.input_line.is_empty());
+        assert!(matches!(writer_rx.try_recv(), Ok(WriterMsg::Data(b)) if b == b"x\n"));
     }
 
     #[test]
