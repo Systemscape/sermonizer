@@ -279,6 +279,6 @@ async fn main() -> Result<()> {
         eprintln!("\nError: {e:?}");
     }
 
-    println!("\nDisconnected. Bye!");
+    println!("\nBye!");
     Ok(())
 }
