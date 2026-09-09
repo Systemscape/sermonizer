@@ -1,0 +1,23 @@
+src/ui/line_assembler.rs
+  s_5e0bd8aca256d6::t_a739dba6b0bcd7 114,197-199,201-205,207-208,210-252
+  s_5e0bd8aca256d6::t_6908e7b0f38292 5,8,53,56-61,102-113
+  s_5e0bd8aca256d6::t_90776fab2b0aa4 54-55,200,206
+  s_5e0bd8aca256d6::t_c4bc0c6d844074 209
+  s_5e0bd8aca256d6::t_c35c64aca8978e 115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6be4667701a254ba811b3d8cf18590059ad1f3dd",
+  "prompts": {},
+  "sessions": {
+    "s_5e0bd8aca256d6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08577-e457-7061-ada4-e50e2878fa9b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
