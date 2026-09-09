@@ -17,7 +17,7 @@ Most terminal-based serial monitors are annoying to use - they have clunky inter
 - **Clean TUI**: Split view with input at bottom, output on top, status bar with connection state
 - **Auto-detect ports**: Just run `sermonizer` and it finds your device; dead onboard UARTs stay out of the way unless you ask for `--all-ports`
 - **Sane defaults**: 115200 baud, 8 data bits, no parity, 1 stop bit
-- **Hex mode**: View binary data as hex bytes
+- **Hex mode**: View binary data as hex bytes with a `hexdump -C` style ASCII column
 - **Clean text**: ANSI colour codes from firmware logs are stripped (keep them with `--raw`)
 - **Local echo**: `--echo` shows what you sent, for devices that do not echo
 - **Logging**: Save RX/TX data with timestamps

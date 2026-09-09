@@ -2,6 +2,8 @@ use chrono::Local;
 use std::fmt::Write as _;
 
 const HEX_BYTES_PER_LINE: usize = 16;
+/// Width of a full row of hex bytes ("XX" plus separating spaces)
+const HEX_COLS: usize = HEX_BYTES_PER_LINE * 3 - 1;
 const MAX_TEXT_LINE_BYTES: usize = 4096;
 const ESC: u8 = 0x1B;
 const BEL: u8 = 0x07;
@@ -33,7 +35,9 @@ pub struct LineAssembler {
     strip_ansi: bool,
     escape: EscapeState,
     partial: Vec<u8>,
-    hex_row: String,
+    hex_ts: String,
+    hex_bytes: String,
+    hex_ascii: String,
     hex_col: usize,
     line_ts: Option<String>,
 }
@@ -46,7 +50,9 @@ impl LineAssembler {
             strip_ansi,
             escape: EscapeState::Text,
             partial: Vec::with_capacity(256),
-            hex_row: String::new(),
+            hex_ts: String::new(),
+            hex_bytes: String::new(),
+            hex_ascii: String::new(),
             hex_col: 0,
             line_ts: None,
         }
@@ -139,25 +145,45 @@ impl LineAssembler {
         for &b in bytes {
             if self.hex_col == 0 {
                 if self.timestamps {
-                    self.hex_row.push_str(&timestamp());
+                    self.hex_ts = timestamp();
                 }
             } else {
-                self.hex_row.push(' ');
+                self.hex_bytes.push(' ');
             }
-            let _ = write!(self.hex_row, "{b:02X}");
+            let _ = write!(self.hex_bytes, "{b:02X}");
+            self.hex_ascii.push(if b.is_ascii_graphic() || b == b' ' {
+                b as char
+            } else {
+                '.'
+            });
             self.hex_col += 1;
             if self.hex_col == HEX_BYTES_PER_LINE {
-                done.push(std::mem::take(&mut self.hex_row));
-                self.hex_col = 0;
+                done.push(self.hex_row());
+                self.clear_hex();
             }
         }
         done
     }
 
+    /// Hex row in `hexdump -C` style: bytes, then the printable characters
+    fn hex_row(&self) -> String {
+        format!(
+            "{}{:<HEX_COLS$}  |{}|",
+            self.hex_ts, self.hex_bytes, self.hex_ascii
+        )
+    }
+
+    fn clear_hex(&mut self) {
+        self.hex_ts.clear();
+        self.hex_bytes.clear();
+        self.hex_ascii.clear();
+        self.hex_col = 0;
+    }
+
     /// Whether an unfinished line is currently shown below the output.
     pub fn has_partial(&self) -> bool {
         if self.hex {
-            !self.hex_row.is_empty()
+            self.hex_col > 0
         } else {
             !self.partial.is_empty()
         }
@@ -166,7 +192,7 @@ impl LineAssembler {
     /// The unfinished line, for display below the completed output.
     pub fn partial_display(&self) -> Option<String> {
         if self.hex {
-            (!self.hex_row.is_empty()).then(|| self.hex_row.clone())
+            (self.hex_col > 0).then(|| self.hex_row())
         } else if self.partial.is_empty() {
             None
         } else {
@@ -179,7 +205,7 @@ impl LineAssembler {
 
     pub fn finish(&mut self) -> Option<String> {
         let line = if self.hex {
-            (!self.hex_row.is_empty()).then(|| std::mem::take(&mut self.hex_row))
+            (self.hex_col > 0).then(|| self.hex_row())
         } else if self.partial.is_empty() {
             None
         } else {
@@ -194,8 +220,7 @@ impl LineAssembler {
     pub fn clear(&mut self) {
         self.escape = EscapeState::Text;
         self.partial.clear();
-        self.hex_row.clear();
-        self.hex_col = 0;
+        self.clear_hex();
         self.line_ts = None;
     }
 }
@@ -219,6 +244,24 @@ fn decode_complete_utf8_prefix(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn hex_row(hex: &str, ascii: &str) -> String {
+        format!("{hex:<HEX_COLS$}  |{ascii}|")
+    }
+
+    #[test]
+    fn hex_rows_show_printable_characters_in_a_gutter() {
+        let mut asm = LineAssembler::new(true, false, true);
+        let rows = asm.push(b"\x01Hi \x7f\xff\x00ok!5678901");
+        assert_eq!(
+            rows,
+            vec![hex_row(
+                "01 48 69 20 7F FF 00 6F 6B 21 35 36 37 38 39 30",
+                ".Hi ...ok!567890"
+            )]
+        );
+        assert_eq!(asm.partial_display(), Some(hex_row("31", "1")));
+    }
 
     #[test]
     fn text_line_split_across_chunks_completes_once() {
@@ -326,15 +369,18 @@ mod tests {
     fn hex_mode_keeps_escape_bytes() {
         let mut asm = LineAssembler::new(true, false, true);
         asm.push(b"\x1b[");
-        assert_eq!(asm.partial_display().as_deref(), Some("1B 5B"));
+        assert_eq!(asm.partial_display(), Some(hex_row("1B 5B", ".[")));
     }
 
     #[test]
     fn hex_rows_wrap_at_sixteen_bytes() {
         let mut asm = LineAssembler::new(true, false, true);
         let completed = asm.push(&[0xDE; 18]);
-        assert_eq!(completed, vec!["DE ".repeat(15) + "DE"]);
-        assert_eq!(asm.partial_display().as_deref(), Some("DE DE"));
+        assert_eq!(
+            completed,
+            vec![hex_row(&("DE ".repeat(15) + "DE"), &".".repeat(16))]
+        );
+        assert_eq!(asm.partial_display(), Some(hex_row("DE DE", "..")));
     }
 
     #[test]
@@ -407,8 +453,11 @@ mod tests {
     fn finish_resets_partial_hex_rows() {
         let mut asm = LineAssembler::new(true, false, true);
         asm.push(&[0xAB; 3]);
-        assert_eq!(asm.finish().as_deref(), Some("AB AB AB"));
+        assert_eq!(asm.finish(), Some(hex_row("AB AB AB", "...")));
         assert_eq!(asm.finish(), None);
-        assert_eq!(asm.push(&[0xCD; 16]), vec!["CD ".repeat(15) + "CD"]);
+        assert_eq!(
+            asm.push(&[0xCD; 16]),
+            vec![hex_row(&("CD ".repeat(15) + "CD"), &".".repeat(16))]
+        );
     }
 }

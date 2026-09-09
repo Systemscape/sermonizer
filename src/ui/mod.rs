@@ -472,10 +472,12 @@ mod tests {
             handle_serial_event(SerialEvent::Disconnected("EOF".into()), &mut state);
             assert!(!state.connected);
             assert_eq!(state.assembler.partial_display(), None);
-            assert_eq!(
-                state.output_lines[0].text,
-                if hex { "62 65 66 6F 72 65" } else { "before" }
-            );
+            if hex {
+                assert!(state.output_lines[0].text.starts_with("62 65 66 6F 72 65"));
+                assert!(state.output_lines[0].text.ends_with("|before|"));
+            } else {
+                assert_eq!(state.output_lines[0].text, "before");
+            }
             assert_eq!(state.output_lines[0].kind, LineKind::Rx);
             assert!(state.output_lines[1].text.contains("device disconnected"));
             assert_eq!(state.output_lines[1].kind, LineKind::Notice);
@@ -485,10 +487,9 @@ mod tests {
             assert!(state.connected);
             assert!(state.output_lines[2].text.contains("device reconnected"));
             if hex {
-                assert_eq!(
-                    state.assembler.partial_display().as_deref(),
-                    Some("61 66 74 65 72 0A")
-                );
+                let partial = state.assembler.partial_display().unwrap_or_default();
+                assert!(partial.starts_with("61 66 74 65 72 0A"), "{partial}");
+                assert!(partial.ends_with("|after.|"), "{partial}");
             } else {
                 assert_eq!(state.output_lines[3].text, "after");
             }
