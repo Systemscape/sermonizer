@@ -11,6 +11,7 @@ use crate::logging::LogSink;
 const READ_BUF_SIZE: usize = 4096;
 const RECONNECT_POLL: Duration = Duration::from_millis(100);
 const RECONNECT_RETRY_TICKS: u32 = 5;
+const DISCONNECT_ACK_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Events sent from the serial threads to the UI.
 #[derive(Debug, Clone)]
@@ -25,6 +26,10 @@ pub enum SerialEvent {
 pub enum WriterMsg {
     Data(Vec<u8>),
     NewPort(Box<dyn SerialPort>),
+    /// Release the current handle and acknowledge once it is dropped: a stale
+    /// descriptor on a vanished device can keep the OS from handing the same
+    /// name to the re-plugged board, so the reopen must wait for the drop
+    Disconnected(std::sync::mpsc::SyncSender<()>),
 }
 
 /// Supervises the reader thread: when the device disappears it keeps trying
@@ -39,6 +44,7 @@ pub fn spawn_supervisor(
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut port = Some(first_port);
+        let mut reconnected = false;
         while running.load(Ordering::SeqCst) {
             let Some(p) = port.take() else { break };
 
@@ -55,6 +61,11 @@ pub fn spawn_supervisor(
                     )));
                 }
             }
+            // Announce only once the writer can use the new connection
+            if reconnected {
+                let _ = events.send(SerialEvent::Reconnected);
+                reconnected = false;
+            }
 
             let reader = spawn_reader(p, running.clone(), events.clone(), rx_log.take());
             rx_log = reader.join().unwrap_or(None);
@@ -64,6 +75,11 @@ pub fn spawn_supervisor(
 
             // Reader exited while we are still running: the device is gone.
             // Poll until the port can be reopened.
+            let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+            if writer.send(WriterMsg::Disconnected(ack_tx)).is_err() {
+                break;
+            }
+            let _ = ack_rx.recv_timeout(DISCONNECT_ACK_TIMEOUT);
             let mut ticks = 0u32;
             while running.load(Ordering::SeqCst) && port.is_none() {
                 std::thread::sleep(RECONNECT_POLL);
@@ -72,8 +88,8 @@ pub fn spawn_supervisor(
                     continue;
                 }
                 if let Ok(p) = settings.open() {
-                    let _ = events.send(SerialEvent::Reconnected);
                     port = Some(p);
+                    reconnected = true;
                 }
             }
         }
@@ -132,6 +148,10 @@ pub fn spawn_writer(
         while let Ok(msg) = messages.recv() {
             match msg {
                 WriterMsg::NewPort(p) => port = Some(p),
+                WriterMsg::Disconnected(ack) => {
+                    port = None;
+                    let _ = ack.send(());
+                }
                 WriterMsg::Data(bytes) => {
                     let Some(p) = port.as_mut() else {
                         let _ =
@@ -154,4 +174,34 @@ pub fn spawn_writer(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writer_reports_not_connected_after_disconnect() {
+        let (writer_tx, writer_rx) = std::sync::mpsc::channel();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let handle = spawn_writer(writer_rx, event_tx, None);
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+        writer_tx
+            .send(WriterMsg::Disconnected(ack_tx))
+            .expect("writer alive");
+        ack_rx
+            .recv_timeout(DISCONNECT_ACK_TIMEOUT)
+            .expect("writer acknowledges the drop");
+        writer_tx
+            .send(WriterMsg::Data(b"hi".to_vec()))
+            .expect("writer alive");
+        drop(writer_tx);
+        handle.join().expect("writer thread exits cleanly");
+
+        match event_rx.try_recv() {
+            Ok(SerialEvent::Error(msg)) => assert!(msg.contains("not connected"), "{msg}"),
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
 }
