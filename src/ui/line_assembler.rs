@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::Local;
 use std::fmt::Write as _;
 
 const HEX_BYTES_PER_LINE: usize = 16;
@@ -201,7 +201,7 @@ impl LineAssembler {
 }
 
 fn timestamp() -> String {
-    format!("[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"))
+    format!("[{}] ", Local::now().format("%Y-%m-%d %H:%M:%S%.3f"))
 }
 
 /// Decode the longest UTF-8 prefix, hiding an incomplete trailing sequence
