@@ -29,7 +29,7 @@ Most terminal-based serial monitors are annoying to use - they have clunky inter
  ttyUSB0 115200 8N1  follow | LF | Enter send, Up/Down history, Shift+Up/Down PgUp/PgDn scroll,
 ```
 
-*Received lines, a sent line (`>`, shown with `--echo`), sermonizer's own notices and the line still being received. Regenerate with `cargo test readme_screenshot -- --ignored --nocapture`.*
+*Received lines, a sent line (`>`, shown with `--echo`), sermonizer's own notices and the line still being received. Regenerate with `just update-screenshot`.*
 
 ## Features
 

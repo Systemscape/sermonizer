@@ -280,7 +280,7 @@ mod tests {
         );
     }
 
-    /// Prints the README screenshot: cargo test readme_screenshot -- --ignored --nocapture
+    /// Prints the README screenshot; `just update-screenshot` writes it into README.md
     #[test]
     #[ignore = "prints the README screenshot on demand"]
     fn readme_screenshot() {
