@@ -76,6 +76,10 @@ struct Args {
     #[arg(long)]
     hex: bool,
 
+    /// Keep ANSI escape sequences in the display instead of stripping them
+    #[arg(long)]
+    raw: bool,
+
     /// Just list ports and exit
     #[arg(long)]
     list: bool,
@@ -123,6 +127,9 @@ async fn main() -> Result<()> {
 
     if args.hex {
         println!("RX view: HEX");
+    }
+    if args.raw {
+        println!("ANSI escapes: kept");
     }
     if args.log_ts {
         println!("Timestamps in logs: ON");
@@ -210,6 +217,7 @@ async fn main() -> Result<()> {
         writer: writer_tx.clone(),
         hex: args.hex,
         show_ts: args.log_ts,
+        raw: args.raw,
         port_label: format!("{port_name} @ {baud}"),
     };
 

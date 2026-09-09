@@ -18,6 +18,7 @@ Most terminal-based serial monitors are annoying to use - they have clunky inter
 - **Auto-detect ports**: Just run `sermonizer` and it finds your device
 - **Sane defaults**: 115200 baud, 8 data bits, no parity, 1 stop bit
 - **Hex mode**: View binary data as hex bytes
+- **Clean text**: ANSI colour codes from firmware logs are stripped (keep them with `--raw`)
 - **Logging**: Save RX/TX data with timestamps
 - **Fast**: Built in Rust, handles high baud rates smoothly
 
@@ -65,6 +66,7 @@ Options:
       --dtr <on|off>       Set the DTR line after opening
       --rts <on|off>       Set the RTS line after opening
       --hex                Display data as hex
+      --raw                Keep ANSI escape sequences instead of stripping them
       --log <FILE>         Log received data
       --tx-log <FILE>      Log transmitted data
       --log-ts             Add timestamps to logs and display

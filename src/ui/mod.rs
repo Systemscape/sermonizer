@@ -30,6 +30,7 @@ pub async fn run_ui<B: Backend>(
     let mut app_state = AppState::new(
         ui_config.hex,
         ui_config.show_ts,
+        !ui_config.raw,
         ui_config.port_label.clone(),
         ui_config.line_ending.describe(),
     );
@@ -275,6 +276,7 @@ mod tests {
             writer,
             hex: false,
             show_ts: false,
+            raw: false,
             port_label: String::new(),
         };
         (config, writer_rx)
@@ -283,7 +285,7 @@ mod tests {
     #[test]
     fn literal_mode_reports_keys_without_a_mapping() {
         let (config, writer_rx) = test_config();
-        let mut state = AppState::new(false, false, String::new(), "LF");
+        let mut state = AppState::new(false, false, true, String::new(), "LF");
         handle_key_event(
             KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
             &mut state,
@@ -303,7 +305,7 @@ mod tests {
     #[test]
     fn disconnect_finishes_partial_output_before_notices() {
         for hex in [false, true] {
-            let mut state = AppState::new(hex, false, String::new(), "LF");
+            let mut state = AppState::new(hex, false, true, String::new(), "LF");
             handle_serial_event(SerialEvent::Data(b"before".to_vec()), &mut state);
             handle_serial_event(SerialEvent::Disconnected("EOF".into()), &mut state);
             assert!(!state.connected);

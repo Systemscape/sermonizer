@@ -30,6 +30,7 @@ enum EscapeState {
 pub struct LineAssembler {
     hex: bool,
     timestamps: bool,
+    strip_ansi: bool,
     escape: EscapeState,
     partial: Vec<u8>,
     hex_row: String,
@@ -38,10 +39,11 @@ pub struct LineAssembler {
 }
 
 impl LineAssembler {
-    pub fn new(hex: bool, timestamps: bool) -> Self {
+    pub fn new(hex: bool, timestamps: bool, strip_ansi: bool) -> Self {
         Self {
             hex,
             timestamps,
+            strip_ansi,
             escape: EscapeState::Text,
             partial: Vec::with_capacity(256),
             hex_row: String::new(),
@@ -101,6 +103,9 @@ impl LineAssembler {
     /// and must not be displayed.
     fn consume_escape(&mut self, b: u8) -> bool {
         use EscapeState::*;
+        if !self.strip_ansi {
+            return false;
+        }
         let (next, consumed) = match (self.escape, b) {
             (Text, ESC) => (Escape, true),
             (Text, _) => (Text, false),
@@ -208,7 +213,7 @@ mod tests {
 
     #[test]
     fn text_line_split_across_chunks_completes_once() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         assert!(asm.push(b"hel").is_empty());
         assert_eq!(asm.partial_display().as_deref(), Some("hel"));
         assert_eq!(asm.push(b"lo\nwor"), vec!["hello".to_string()]);
@@ -217,14 +222,14 @@ mod tests {
 
     #[test]
     fn crlf_is_trimmed_from_completed_and_partial_lines() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         assert_eq!(asm.push(b"one\r\ntwo\r"), vec!["one".to_string()]);
         assert_eq!(asm.partial_display().as_deref(), Some("two"));
     }
 
     #[test]
     fn utf8_sequence_split_across_chunks_stays_intact() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         let bytes = "grün\n".as_bytes();
         assert!(asm.push(&bytes[..3]).is_empty());
         // Incomplete trailing sequence is hidden, not shown as replacement char
@@ -235,14 +240,14 @@ mod tests {
 
     #[test]
     fn ansi_escape_sequences_are_stripped_from_text() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         let line = b"\x1b[0;32mI (123) main: ok\x1b[0m\r\n";
         assert_eq!(asm.push(line), vec!["I (123) main: ok".to_string()]);
     }
 
     #[test]
     fn ansi_escape_split_across_chunks_is_stripped() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         assert!(asm.push(b"a\x1b[").is_empty());
         assert_eq!(asm.partial_display().as_deref(), Some("a"));
         assert_eq!(asm.push(b"1;31mb\n"), vec!["ab".to_string()]);
@@ -250,7 +255,7 @@ mod tests {
 
     #[test]
     fn two_byte_escape_and_newline_inside_escape_are_handled() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         // ESC c (reset) is a two-byte sequence; a newline aborts a broken one
         assert_eq!(
             asm.push(b"\x1bcx\x1b[9\ny\n"),
@@ -260,7 +265,7 @@ mod tests {
 
     #[test]
     fn bytes_outside_csi_ranges_abort_the_sequence_and_stay_visible() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         // Line noise: ESC [ followed by high bytes must not swallow the text
         let out = asm.push(b"good\x1b[\x80\x81 lots of text\n");
         assert_eq!(out, vec!["good\u{FFFD}\u{FFFD} lots of text".to_string()]);
@@ -275,7 +280,7 @@ mod tests {
 
     #[test]
     fn string_sequences_are_consumed_up_to_their_terminator() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         assert_eq!(
             asm.push(b"\x1b]0;my board\x07hello\n"),
             vec!["hello".to_string()]
@@ -292,7 +297,7 @@ mod tests {
 
     #[test]
     fn timestamp_is_not_taken_from_escape_bytes() {
-        let mut asm = LineAssembler::new(false, true);
+        let mut asm = LineAssembler::new(false, true, true);
         assert!(asm.push(b"\x1b[2J").is_empty());
         assert_eq!(asm.line_ts, None);
         assert_eq!(asm.partial_display(), None);
@@ -300,15 +305,24 @@ mod tests {
     }
 
     #[test]
+    fn raw_mode_keeps_escape_sequences() {
+        let mut asm = LineAssembler::new(false, false, false);
+        assert_eq!(
+            asm.push(b"\x1b[31mred\x1b[0m\n"),
+            vec!["\x1b[31mred\x1b[0m".to_string()]
+        );
+    }
+
+    #[test]
     fn hex_mode_keeps_escape_bytes() {
-        let mut asm = LineAssembler::new(true, false);
+        let mut asm = LineAssembler::new(true, false, true);
         asm.push(b"\x1b[");
         assert_eq!(asm.partial_display().as_deref(), Some("1B 5B"));
     }
 
     #[test]
     fn hex_rows_wrap_at_sixteen_bytes() {
-        let mut asm = LineAssembler::new(true, false);
+        let mut asm = LineAssembler::new(true, false, true);
         let completed = asm.push(&[0xDE; 18]);
         assert_eq!(completed, vec!["DE ".repeat(15) + "DE"]);
         assert_eq!(asm.partial_display().as_deref(), Some("DE DE"));
@@ -316,7 +330,7 @@ mod tests {
 
     #[test]
     fn timestamps_prefix_each_completed_line() {
-        let mut asm = LineAssembler::new(false, true);
+        let mut asm = LineAssembler::new(false, true, true);
         let completed = asm.push(b"a\nb\n");
         assert_eq!(completed.len(), 2);
         for line in &completed {
@@ -327,7 +341,7 @@ mod tests {
 
     #[test]
     fn clear_resets_partial_state() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         asm.push(b"pending");
         asm.clear();
         assert_eq!(asm.partial_display(), None);
@@ -336,7 +350,7 @@ mod tests {
     #[test]
     fn newline_free_stream_is_bounded_and_preserved() {
         for byte in [b'a', 0x80, b'\r'] {
-            let mut asm = LineAssembler::new(false, false);
+            let mut asm = LineAssembler::new(false, false, true);
             let mut lines = Vec::new();
             let chunk = vec![byte; 997];
             for _ in 0..100 {
@@ -352,7 +366,7 @@ mod tests {
     fn long_lines_preserve_utf8_at_each_split_boundary() {
         for offset in 0..4 {
             let text = "a".repeat(MAX_TEXT_LINE_BYTES - offset) + "🦀next\r\n";
-            let mut asm = LineAssembler::new(false, false);
+            let mut asm = LineAssembler::new(false, false, true);
             let mut lines = Vec::new();
             for byte in text.bytes() {
                 lines.extend(asm.push(&[byte]));
@@ -364,7 +378,7 @@ mod tests {
 
     #[test]
     fn newline_at_limit_does_not_create_an_extra_line() {
-        let mut asm = LineAssembler::new(false, false);
+        let mut asm = LineAssembler::new(false, false, true);
         let text = "a".repeat(MAX_TEXT_LINE_BYTES);
         assert!(asm.push(text.as_bytes()).is_empty());
         assert_eq!(asm.push(b"\r\n"), vec![text]);
@@ -372,7 +386,7 @@ mod tests {
 
     #[test]
     fn finish_preserves_incomplete_utf8_and_resets_timestamps() {
-        let mut asm = LineAssembler::new(false, true);
+        let mut asm = LineAssembler::new(false, true, true);
         asm.push(b"before\xF0\x9F");
         assert!(asm.finish().unwrap().ends_with("before�"));
         assert_eq!(asm.finish(), None);
@@ -382,7 +396,7 @@ mod tests {
 
     #[test]
     fn finish_resets_partial_hex_rows() {
-        let mut asm = LineAssembler::new(true, false);
+        let mut asm = LineAssembler::new(true, false, true);
         asm.push(&[0xAB; 3]);
         assert_eq!(asm.finish().as_deref(), Some("AB AB AB"));
         assert_eq!(asm.finish(), None);

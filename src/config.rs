@@ -213,5 +213,7 @@ pub struct UiConfig {
     pub writer: std::sync::mpsc::Sender<WriterMsg>,
     pub hex: bool,
     pub show_ts: bool,
+    /// Keep ANSI escape sequences in the display instead of stripping them
+    pub raw: bool,
     pub port_label: String,
 }

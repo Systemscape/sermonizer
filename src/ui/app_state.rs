@@ -29,6 +29,7 @@ impl AppState {
     pub fn new(
         hex: bool,
         timestamps: bool,
+        strip_ansi: bool,
         port_label: String,
         line_ending_label: &'static str,
     ) -> Self {
@@ -40,7 +41,7 @@ impl AppState {
             draft: String::new(),
             pending_literal: false,
             output_lines: VecDeque::with_capacity(MAX_OUTPUT_LINES),
-            assembler: LineAssembler::new(hex, timestamps),
+            assembler: LineAssembler::new(hex, timestamps, strip_ansi),
             list_state: ListState::default(),
             auto_scroll_state: ListState::default(),
             should_quit: false,
@@ -300,7 +301,7 @@ mod tests {
     use super::*;
 
     fn state_with_lines(n: usize) -> AppState {
-        let mut state = AppState::new(false, false, String::new(), "LF");
+        let mut state = AppState::new(false, false, true, String::new(), "LF");
         for i in 0..n {
             state.add_notice(format!("line {i}"));
         }
