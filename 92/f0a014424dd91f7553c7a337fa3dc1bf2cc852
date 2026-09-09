@@ -1,0 +1,20 @@
+src/serial_io.rs
+  s_4af44bd7499c7c::t_ef48184e84868d 28-30,45,62-65,75-77,87,146
+  s_4af44bd7499c7c::t_8133c369788667 170-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "92f0a014424dd91f7553c7a337fa3dc1bf2cc852",
+  "prompts": {},
+  "sessions": {
+    "s_4af44bd7499c7c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5551a962-3406-4041-bb12-774aaf00db3a",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
