@@ -117,8 +117,26 @@ fn handle_input_event(event: Event, app_state: &mut AppState, ui_config: &UiConf
         Event::Key(k) if k.kind == KeyEventKind::Press => {
             handle_key_event(k, app_state, ui_config);
         }
+        Event::Paste(text) => handle_paste(&text, app_state, ui_config),
         Event::Resize(_, _) => app_state.needs_render = true,
         _ => {}
+    }
+}
+
+/// Pasted text is sent line by line; an unterminated last line stays in the
+/// input box so the user can finish it.
+fn handle_paste(text: &str, app_state: &mut AppState, ui_config: &UiConfig) {
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' => {
+                chars.next_if_eq(&'\n');
+                handle_enter_key(app_state, ui_config);
+            }
+            '\n' => handle_enter_key(app_state, ui_config),
+            c if c.is_control() => {}
+            c => app_state.update_input(c),
+        }
     }
 }
 
@@ -174,6 +192,10 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
         }
         KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app_state.clear_output();
+        }
+        // A pasted LF arrives as Ctrl+J in raw mode
+        KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            handle_enter_key(app_state, ui_config);
         }
         KeyCode::Char('v') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app_state.pending_literal = true;
@@ -280,6 +302,40 @@ mod tests {
             port_label: String::new(),
         };
         (config, writer_rx)
+    }
+
+    #[test]
+    fn ctrl_j_sends_like_enter() {
+        let (config, writer_rx) = test_config();
+        let mut state = AppState::new(false, false, true, String::new(), "LF");
+        handle_key_event(KeyEvent::from(KeyCode::Char('a')), &mut state, &config);
+        handle_key_event(
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+            &mut state,
+            &config,
+        );
+        match writer_rx.try_recv() {
+            Ok(WriterMsg::Data(bytes)) => assert_eq!(bytes, b"a\n"),
+            _ => panic!("expected the line to be sent"),
+        }
+        assert!(state.input_line.is_empty());
+    }
+
+    #[test]
+    fn paste_sends_complete_lines_and_keeps_the_rest() {
+        let (config, writer_rx) = test_config();
+        let mut state = AppState::new(false, false, true, String::new(), "LF");
+        handle_input_event(
+            Event::Paste("first\r\nsecond\nthird".to_string()),
+            &mut state,
+            &config,
+        );
+        let mut sent = Vec::new();
+        while let Ok(WriterMsg::Data(bytes)) = writer_rx.try_recv() {
+            sent.push(bytes);
+        }
+        assert_eq!(sent, vec![b"first\n".to_vec(), b"second\n".to_vec()]);
+        assert_eq!(state.input_line, "third");
     }
 
     #[test]

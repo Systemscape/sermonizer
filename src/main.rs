@@ -11,6 +11,8 @@ use config::{
 };
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
+use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+use ratatui::crossterm::execute;
 use serial_io::{SerialEvent, WriterMsg, spawn_supervisor, spawn_writer};
 use std::path::PathBuf;
 use std::sync::{
@@ -210,6 +212,9 @@ async fn main() -> Result<()> {
             let _ = ratatui::try_restore();
         })
         .context("Failed to set up terminal")?;
+    // Best effort: terminals without bracketed paste still deliver pasted
+    // text as key events
+    let _ = execute!(std::io::stdout(), EnableBracketedPaste);
 
     let ui_config = UiConfig {
         running: running.clone(),
@@ -224,6 +229,7 @@ async fn main() -> Result<()> {
     let ui_res = run_ui(&mut terminal, ui_rx, event_rx, ui_config).await;
 
     // Restore terminal before anything else can fail
+    let _ = execute!(std::io::stdout(), DisableBracketedPaste);
     ratatui::try_restore().context("Failed to restore terminal")?;
     terminal.show_cursor()?;
 

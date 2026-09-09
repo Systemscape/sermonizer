@@ -76,6 +76,7 @@ Options:
 ## Controls
 
 - **Type and press Enter**: Send data to device
+- **Paste**: Multi-line text is sent line by line; an unfinished last line stays in the input box
 - **↑↓**: Browse send history
 - **Shift+↑↓ / Page Up/Down**: Scroll through output
 - **Home / End**: Jump to top / bottom (End resumes auto-scroll)
