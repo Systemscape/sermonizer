@@ -70,6 +70,7 @@ Options:
       --raw                Keep ANSI escape sequences instead of stripping them
   -e, --echo               Show sent lines in the output, prefixed with "> "
   -w, --wrap               Wrap long lines instead of clipping them
+      --mouse              Scroll output with the mouse wheel
       --log <FILE>         Log received data
       --tx-log <FILE>      Log transmitted data
   -t, --timestamps         Add timestamps to display and logs (alias: --log-ts)
@@ -85,6 +86,7 @@ Options:
 - **Ctrl+U / Ctrl+K / Ctrl+W**: Delete to start of line / to end of line / previous word
 - **Shift+↑↓ / Page Up/Down**: Scroll through output
 - **Shift+Home / Shift+End** (or Ctrl+Home / Ctrl+End): Jump to top / bottom of output (End resumes auto-scroll)
+- **Mouse wheel**: Scrolls the output when started with `--mouse`. It is off by default because capturing the mouse makes most terminals require Shift+drag to select and copy text
 - **Ctrl+T**: Toggle wrapping of long lines
 - **Ctrl+L**: Clear output
 - **Ctrl+V, then a key**: Send that key as a raw control byte (e.g. Ctrl+V Ctrl+C sends 0x03)

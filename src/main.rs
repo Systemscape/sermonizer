@@ -12,7 +12,9 @@ use config::{
 };
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
-use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+use ratatui::crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+};
 use ratatui::crossterm::execute;
 use serial_io::{SerialEvent, WriterMsg, spawn_supervisor, spawn_writer};
 use std::path::PathBuf;
@@ -90,6 +92,11 @@ struct Args {
     /// Wrap long lines instead of clipping them (toggle at runtime with Ctrl+T)
     #[arg(short = 'w', long)]
     wrap: bool,
+
+    /// Scroll the output with the mouse wheel (the terminal then needs
+    /// Shift+drag to select text)
+    #[arg(long)]
+    mouse: bool,
 
     /// Just list ports and exit
     #[arg(long)]
@@ -230,6 +237,9 @@ async fn main() -> Result<()> {
     // Best effort: terminals without bracketed paste still deliver pasted
     // text as key events
     let _ = execute!(std::io::stdout(), EnableBracketedPaste);
+    if args.mouse {
+        let _ = execute!(std::io::stdout(), EnableMouseCapture);
+    }
 
     let ui_config = UiConfig {
         running: running.clone(),
@@ -246,6 +256,9 @@ async fn main() -> Result<()> {
     let ui_res = run_ui(&mut terminal, ui_rx, event_rx, ui_config).await;
 
     // Restore terminal before anything else can fail
+    if args.mouse {
+        let _ = execute!(std::io::stdout(), DisableMouseCapture);
+    }
     let _ = execute!(std::io::stdout(), DisableBracketedPaste);
     ratatui::try_restore().context("Failed to restore terminal")?;
     terminal.show_cursor()?;

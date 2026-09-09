@@ -6,7 +6,9 @@ pub use app_state::AppState;
 pub use rendering::draw_ui;
 
 use anyhow::Result;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
+};
 use ratatui::{Terminal, backend::Backend};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,6 +17,8 @@ use tokio::sync::mpsc;
 
 use crate::config::UiConfig;
 use crate::serial_io::{SerialEvent, WriterMsg};
+
+const MOUSE_SCROLL_ROWS: usize = 3;
 
 #[derive(Debug)]
 pub enum UiMessage {
@@ -119,6 +123,12 @@ fn handle_input_event(event: Event, app_state: &mut AppState, ui_config: &UiConf
             handle_key_event(k, app_state, ui_config);
         }
         Event::Paste(text) => handle_paste(&text, app_state, ui_config),
+        // Only delivered when --mouse enabled capture
+        Event::Mouse(m) => match m.kind {
+            MouseEventKind::ScrollUp => app_state.scroll_up_by(MOUSE_SCROLL_ROWS),
+            MouseEventKind::ScrollDown => app_state.scroll_down_by(MOUSE_SCROLL_ROWS),
+            _ => {}
+        },
         Event::Resize(_, _) => app_state.needs_render = true,
         _ => {}
     }
