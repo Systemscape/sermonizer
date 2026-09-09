@@ -11,8 +11,6 @@ use config::{
 };
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
-use ratatui::crossterm::terminal;
-use ratatui::{Terminal, backend::CrosstermBackend};
 use serial_io::{SerialEvent, WriterMsg, spawn_supervisor, spawn_writer};
 use std::path::PathBuf;
 use std::sync::{
@@ -199,12 +197,12 @@ async fn main() -> Result<()> {
         rx_log,
     );
 
-    // Setup terminal for ratatui
-    terminal::enable_raw_mode().context("Failed to enable raw mode")?;
-    let mut stdout = std::io::stdout();
-    ratatui::crossterm::execute!(stdout, terminal::EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    // Raw mode + alternate screen, with a panic hook that restores both
+    let mut terminal = ratatui::try_init()
+        .inspect_err(|_| {
+            let _ = ratatui::try_restore();
+        })
+        .context("Failed to set up terminal")?;
 
     let ui_config = UiConfig {
         running: running.clone(),
@@ -217,9 +215,8 @@ async fn main() -> Result<()> {
 
     let ui_res = run_ui(&mut terminal, ui_rx, event_rx, ui_config).await;
 
-    // Cleanup terminal
-    terminal::disable_raw_mode()?;
-    ratatui::crossterm::execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
+    // Restore terminal before anything else can fail
+    ratatui::try_restore().context("Failed to restore terminal")?;
     terminal.show_cursor()?;
 
     // Ensure we stop and join the serial threads
