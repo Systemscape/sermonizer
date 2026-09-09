@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use unicode_width::UnicodeWidthChar;
 
@@ -33,7 +33,7 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
     }
 
     let item_count = output_items.len();
-    let mut output_list = List::new(output_items)
+    let output_list = List::new(output_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -41,7 +41,7 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
         )
         .style(Style::default().fg(Color::White));
 
-    // Handle auto-scrolling vs manual scrolling
+    app_state.view_height = chunks[0].height.saturating_sub(2) as usize;
     if app_state.auto_scroll {
         // Keep the selection pinned to the bottom so the list follows new
         // data; no highlight, the selection is not user-visible state here
@@ -49,11 +49,11 @@ pub fn draw_ui(f: &mut Frame, app_state: &mut AppState) {
             .auto_scroll_state
             .select(item_count.checked_sub(1));
         f.render_stateful_widget(output_list, chunks[0], &mut app_state.auto_scroll_state);
+        // Remember where the view starts so manual scrolling continues from it
+        app_state.follow_top = app_state.auto_scroll_state.offset();
     } else {
-        // Manual scrolling mode - use the user's scroll position
-        output_list =
-            output_list.highlight_style(Style::default().fg(Color::Black).bg(Color::White));
-        f.render_stateful_widget(output_list, chunks[0], &mut app_state.list_state);
+        let mut state = ListState::default().with_offset(app_state.scroll_top);
+        f.render_stateful_widget(output_list, chunks[0], &mut state);
     }
 
     // Input line: keep the cursor visible by scrolling horizontally once the

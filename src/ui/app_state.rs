@@ -28,8 +28,10 @@ pub struct AppState {
     pub pending_literal: bool, // Next key is sent as a raw control byte
     pub output_lines: VecDeque<OutputLine>,
     pub assembler: LineAssembler,
-    pub list_state: ListState,
     pub auto_scroll_state: ListState,
+    pub scroll_top: usize,  // First visible row while scrolled manually
+    pub follow_top: usize,  // First visible row of the last frame while following
+    pub view_height: usize, // Rows available to the output list in the last frame
     pub should_quit: bool,
     pub auto_scroll: bool,
     pub connected: bool,
@@ -57,8 +59,10 @@ impl AppState {
             pending_literal: false,
             output_lines: VecDeque::with_capacity(MAX_OUTPUT_LINES),
             assembler: LineAssembler::new(hex, timestamps, strip_ansi),
-            list_state: ListState::default(),
             auto_scroll_state: ListState::default(),
+            scroll_top: 0,
+            follow_top: 0,
+            view_height: 0,
             should_quit: false,
             auto_scroll: true,
             connected: true,
@@ -125,60 +129,73 @@ impl AppState {
             return;
         }
         self.output_lines.drain(..overflow);
-        // Keep the manual scroll window anchored to the same lines while
-        // old lines are pruned from the front
-        if let Some(selected) = self.list_state.selected() {
-            self.list_state
-                .select(Some(selected.saturating_sub(overflow)));
-        }
-        let offset = self.list_state.offset();
-        *self.list_state.offset_mut() = offset.saturating_sub(overflow);
+        // Keep the scroll window anchored to the same lines while old lines
+        // are pruned from the front
+        self.scroll_top = self.scroll_top.saturating_sub(overflow);
+        self.follow_top = self.follow_top.saturating_sub(overflow);
     }
 
-    /// Index of the bottom rendered row while following: the partial line,
-    /// when shown, sits below the last complete line
-    fn follow_position(&self) -> usize {
-        let last = self.output_lines.len() - 1;
-        if self.assembler.has_partial() {
-            last + 1
+    /// Rows the output list can show; a sane page before the first frame
+    fn page_size(&self) -> usize {
+        self.view_height.max(1)
+    }
+
+    fn total_rows(&self) -> usize {
+        self.output_lines.len() + usize::from(self.assembler.has_partial())
+    }
+
+    /// Highest top row at which the newest line is still visible
+    fn max_top(&self) -> usize {
+        self.total_rows().saturating_sub(self.page_size())
+    }
+
+    /// Top row of the current view, whether following or scrolled
+    fn current_top(&self) -> usize {
+        if self.auto_scroll {
+            self.follow_top.min(self.max_top())
         } else {
-            last
+            self.scroll_top
         }
+    }
+
+    /// Scroll so that `top` is the first visible row; reaching the newest
+    /// line resumes following new data
+    fn set_top(&mut self, top: usize) {
+        if top >= self.max_top() {
+            self.enable_auto_scroll();
+            return;
+        }
+        self.auto_scroll = false;
+        self.scroll_top = top;
+        self.needs_render = true;
+    }
+
+    pub fn scroll_up_by(&mut self, rows: usize) {
+        self.set_top(self.current_top().saturating_sub(rows));
+    }
+
+    pub fn scroll_down_by(&mut self, rows: usize) {
+        self.set_top(self.current_top().saturating_add(rows));
     }
 
     pub fn scroll_up(&mut self) {
-        if self.output_lines.is_empty() {
-            return;
-        }
-        // Disable auto-scroll when manually scrolling
-        self.auto_scroll = false;
-
-        let selected = self
-            .list_state
-            .selected()
-            .unwrap_or_else(|| self.follow_position());
-        if selected > 0 {
-            self.list_state.select(Some(selected - 1));
-            self.needs_render = true;
-        }
+        self.scroll_up_by(1);
     }
 
     pub fn scroll_down(&mut self) {
-        if self.output_lines.is_empty() {
-            return;
-        }
+        self.scroll_down_by(1);
+    }
 
-        // While following, the implicit position is the last line
-        let last = self.output_lines.len() - 1;
-        let selected = self.list_state.selected().unwrap_or(last);
-        if selected < last {
-            self.auto_scroll = false;
-            self.list_state.select(Some(selected + 1));
-            self.needs_render = true;
-        } else {
-            // Scrolling past the last line resumes following new data
-            self.enable_auto_scroll();
-        }
+    pub fn scroll_page_up(&mut self) {
+        self.scroll_up_by(self.page_size());
+    }
+
+    pub fn scroll_page_down(&mut self) {
+        self.scroll_down_by(self.page_size());
+    }
+
+    pub fn scroll_to_home(&mut self) {
+        self.set_top(0);
     }
 
     pub fn scroll_to_bottom(&mut self) {
@@ -188,55 +205,15 @@ impl AppState {
     pub fn enable_auto_scroll(&mut self) {
         self.auto_scroll = true;
         self.unseen_lines = 0;
-        self.list_state.select(None); // Clear selection when re-enabling auto-scroll
         self.needs_render = true;
-    }
-
-    pub fn scroll_to_home(&mut self) {
-        if !self.output_lines.is_empty() {
-            // Disable auto-scroll when manually scrolling to top
-            self.auto_scroll = false;
-            self.list_state.select(Some(0));
-            self.needs_render = true;
-        }
-    }
-
-    pub fn scroll_page_up(&mut self, page_size: usize) {
-        if self.output_lines.is_empty() {
-            return;
-        }
-        self.auto_scroll = false;
-        let last = self.output_lines.len() - 1;
-        let current = self
-            .list_state
-            .selected()
-            .unwrap_or_else(|| self.follow_position());
-        let new_selected = current.saturating_sub(page_size).min(last);
-        self.list_state.select(Some(new_selected));
-        self.needs_render = true;
-    }
-
-    pub fn scroll_page_down(&mut self, page_size: usize) {
-        if self.output_lines.is_empty() {
-            return;
-        }
-        let last = self.output_lines.len() - 1;
-        let current = self.list_state.selected().unwrap_or(last);
-        let new_selected = (current + page_size).min(last);
-        if new_selected == last {
-            self.enable_auto_scroll();
-        } else {
-            self.auto_scroll = false;
-            self.list_state.select(Some(new_selected));
-            self.needs_render = true;
-        }
     }
 
     pub fn clear_output(&mut self) {
         self.output_lines.clear();
         self.assembler.clear();
-        self.list_state.select(None);
-        self.needs_render = true;
+        self.scroll_top = 0;
+        self.follow_top = 0;
+        self.enable_auto_scroll();
     }
 
     pub fn push_history(&mut self, line: String) {
@@ -409,50 +386,95 @@ mod tests {
         state
     }
 
-    #[test]
-    fn scroll_down_while_following_stays_at_bottom() {
-        let mut state = state_with_lines(50);
-        state.scroll_down();
-        assert!(state.auto_scroll);
-        assert_eq!(state.list_state.selected(), None);
+    /// A state as it looks after one frame was drawn while following
+    fn rendered_state(lines: usize, view_height: usize) -> AppState {
+        let mut state = state_with_lines(lines);
+        state.view_height = view_height;
+        state.follow_top = lines.saturating_sub(view_height);
+        state
     }
 
     #[test]
-    fn page_down_while_following_stays_at_bottom() {
-        let mut state = state_with_lines(50);
-        state.scroll_page_down(10);
+    fn scroll_down_and_page_down_while_following_keep_following() {
+        let mut state = rendered_state(50, 18);
+        state.scroll_down();
         assert!(state.auto_scroll);
-        assert_eq!(state.list_state.selected(), None);
+        state.scroll_page_down();
+        assert!(state.auto_scroll);
+    }
+
+    #[test]
+    fn scroll_up_moves_the_view_one_row_and_down_resumes_following() {
+        let mut state = rendered_state(50, 18);
+        state.scroll_up();
+        assert!(!state.auto_scroll);
+        assert_eq!(state.scroll_top, 31);
+        state.scroll_down();
+        assert!(state.auto_scroll);
+    }
+
+    #[test]
+    fn pages_move_by_the_visible_height() {
+        let mut state = rendered_state(50, 18);
+        state.scroll_page_up();
+        assert_eq!(state.scroll_top, 14);
+        state.scroll_page_up();
+        assert_eq!(state.scroll_top, 0);
+        state.scroll_page_down();
+        assert_eq!(state.scroll_top, 18);
+        state.scroll_page_down();
+        assert!(state.auto_scroll, "past the newest line resumes following");
+    }
+
+    #[test]
+    fn home_jumps_to_the_top_and_bottom_resumes_following() {
+        let mut state = rendered_state(50, 18);
+        state.scroll_to_home();
+        assert!(!state.auto_scroll);
+        assert_eq!(state.scroll_top, 0);
+        state.scroll_to_bottom();
+        assert!(state.auto_scroll);
+    }
+
+    #[test]
+    fn scrolling_is_a_noop_when_everything_fits() {
+        let mut state = rendered_state(5, 18);
+        state.scroll_up();
+        state.scroll_page_up();
+        state.scroll_to_home();
+        assert!(state.auto_scroll);
+    }
+
+    #[test]
+    fn partial_row_counts_toward_the_scroll_range() {
+        let mut state = rendered_state(50, 18);
+        state.add_data(b"partial");
+        state.auto_scroll = false;
+        state.scroll_top = 31;
+        state.scroll_down();
+        assert!(!state.auto_scroll, "row 32 still hides the partial line");
+        state.scroll_down();
+        assert!(state.auto_scroll);
     }
 
     #[test]
     fn trimming_keeps_manual_scroll_window_anchored() {
-        let mut state = state_with_lines(MAX_OUTPUT_LINES);
+        let mut state = rendered_state(MAX_OUTPUT_LINES, 18);
         state.scroll_up();
-        state.list_state.select(Some(510));
-        *state.list_state.offset_mut() = 500;
-
+        state.scroll_top = 500;
         for _ in 0..10 {
             state.add_notice("new".to_string());
         }
-        assert_eq!(state.list_state.selected(), Some(500));
-        assert_eq!(state.list_state.offset(), 490);
+        assert_eq!(state.scroll_top, 490);
     }
 
     #[test]
-    fn scroll_up_from_follow_lands_on_last_complete_line_above_partial() {
-        let mut state = state_with_lines(50);
-        state.add_data(b"partial");
-        state.scroll_up();
-        assert_eq!(state.list_state.selected(), Some(49));
-    }
-
-    #[test]
-    fn page_up_from_follow_counts_the_partial_row() {
-        let mut state = state_with_lines(50);
-        state.add_data(b"partial");
-        state.scroll_page_up(10);
-        assert_eq!(state.list_state.selected(), Some(40));
+    fn clearing_output_resumes_following() {
+        let mut state = rendered_state(50, 18);
+        state.scroll_to_home();
+        state.clear_output();
+        assert!(state.auto_scroll);
+        assert!(state.output_lines.is_empty());
     }
 
     fn state_with_input(text: &str) -> AppState {
@@ -498,16 +520,5 @@ mod tests {
         assert_eq!(state.input_line, "");
         state.delete_word_back();
         assert_eq!(state.input_line, "");
-    }
-
-    #[test]
-    fn scroll_up_then_down_moves_relative_to_bottom() {
-        let mut state = state_with_lines(50);
-        state.scroll_up();
-        assert_eq!(state.list_state.selected(), Some(48));
-        state.scroll_down();
-        assert_eq!(state.list_state.selected(), Some(49));
-        state.scroll_down();
-        assert!(state.auto_scroll);
     }
 }

@@ -263,10 +263,10 @@ fn handle_key_event(key: KeyEvent, app_state: &mut AppState, ui_config: &UiConfi
             app_state.history_next();
         }
         KeyCode::PageUp => {
-            app_state.scroll_page_up(10);
+            app_state.scroll_page_up();
         }
         KeyCode::PageDown => {
-            app_state.scroll_page_down(10);
+            app_state.scroll_page_down();
         }
         KeyCode::Home
             if key
