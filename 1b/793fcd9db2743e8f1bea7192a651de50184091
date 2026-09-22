@@ -1,0 +1,20 @@
+src/ui/line_assembler.rs
+  s_4af44bd7499c7c::t_0ce2c15814d7aa 6,8,12-14,16,19,24,27-29,33,45,74-75,100-102,127,130-131,181,255-258
+  s_4af44bd7499c7c::t_6c8ee4d3336fc3 236-254,259-260,302-308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1b793fcd9db2743e8f1bea7192a651de50184091",
+  "prompts": {},
+  "sessions": {
+    "s_4af44bd7499c7c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5551a962-3406-4041-bb12-774aaf00db3a",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}

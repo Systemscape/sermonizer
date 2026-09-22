@@ -1,0 +1,21 @@
+src/ui/mod.rs
+  s_4af44bd7499c7c::t_12c454c369a3e4 38-39,92
+  s_4af44bd7499c7c::t_d915d9d8512084 41-46,48-50,52-57,60-65,68-73,77-84,86
+  s_4af44bd7499c7c::t_6867973dd73ff7 40,88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0bb4e8f6ebdf743826693476a2bd9e2ff7747f1e",
+  "prompts": {},
+  "sessions": {
+    "s_4af44bd7499c7c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5551a962-3406-4041-bb12-774aaf00db3a",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}

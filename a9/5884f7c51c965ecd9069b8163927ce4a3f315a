@@ -1,0 +1,21 @@
+src/logging.rs
+  s_4af44bd7499c7c::t_435196ced326de 2,53-57
+src/ui/line_assembler.rs
+  s_4af44bd7499c7c::t_d43296afa411c9 1,204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a95884f7c51c965ecd9069b8163927ce4a3f315a",
+  "prompts": {},
+  "sessions": {
+    "s_4af44bd7499c7c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5551a962-3406-4041-bb12-774aaf00db3a",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
