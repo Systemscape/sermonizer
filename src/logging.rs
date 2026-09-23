@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::Local;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
@@ -50,7 +50,11 @@ impl<W: Write> LogSink<W> {
     }
 
     fn write_timestamp(writer: &mut W) -> io::Result<()> {
-        write!(writer, "[{}] ", Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"))
+        write!(
+            writer,
+            "[{}] ",
+            Local::now().format("%Y-%m-%d %H:%M:%S%.3f")
+        )
     }
 
     fn write_text(&mut self, bytes: &[u8]) -> io::Result<()> {

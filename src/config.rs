@@ -43,6 +43,28 @@ impl PortSettings {
     }
 }
 
+/// A hint for the two open failures users hit most: the port is held by
+/// another program, or the user lacks permission on the device node.
+pub fn open_hint(error: &serialport::Error) -> Option<&'static str> {
+    use serialport::ErrorKind;
+    let description = error.description.to_ascii_lowercase();
+    match error.kind() {
+        ErrorKind::Io(std::io::ErrorKind::ResourceBusy) => Some(BUSY_HINT),
+        ErrorKind::Io(std::io::ErrorKind::PermissionDenied) => Some(PERMISSION_HINT),
+        ErrorKind::NoDevice => None,
+        _ if description.contains("busy") => Some(BUSY_HINT),
+        _ if description.contains("permission") || description.contains("access is denied") => {
+            Some(PERMISSION_HINT)
+        }
+        _ => None,
+    }
+}
+
+const BUSY_HINT: &str = "Another program probably has the port open: a leftover screen/minicom/picocom \
+session, an IDE serial monitor, or ModemManager probing a new device.";
+const PERMISSION_HINT: &str = "You lack permission on the device node. On Linux add your user to the \
+dialout (Debian/Ubuntu) or uucp (Arch) group and log in again.";
+
 /// Explicit level for a control line
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum Toggle {
@@ -180,6 +202,7 @@ pub enum LineEnding {
     /// Send nothing extra (no line ending)
     None,
     /// Send '\n' (LF)
+    #[value(alias = "lf")]
     Nl,
     /// Send '\r' (CR)
     Cr,
@@ -207,11 +230,76 @@ impl LineEnding {
     }
 }
 
+/// Longest port name shown in the status bar before it is cut from the left
+const PORT_LABEL_MAX: usize = 28;
+
+/// Compact status-bar label: the port's basename (by-id paths and Windows
+/// COM names both survive), cut from the left when still too long, followed
+/// by baud and framing.
+pub fn port_label(port_name: &str, baud: u32, framing: &str) -> String {
+    let name = std::path::Path::new(port_name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(port_name);
+    let chars = name.chars().count();
+    let name = if chars > PORT_LABEL_MAX {
+        let tail: String = name.chars().skip(chars - (PORT_LABEL_MAX - 3)).collect();
+        format!("...{tail}")
+    } else {
+        name.to_string()
+    };
+    format!("{name} {baud} {framing}")
+}
+
 pub struct UiConfig {
     pub running: Arc<AtomicBool>,
     pub line_ending: LineEnding,
     pub writer: std::sync::mpsc::Sender<WriterMsg>,
     pub hex: bool,
     pub show_ts: bool,
+    /// Keep ANSI escape sequences in the display instead of stripping them
+    pub raw: bool,
+    /// Show transmitted lines in the output
+    pub echo: bool,
+    /// Start with long lines wrapped instead of clipped
+    pub wrap: bool,
     pub port_label: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_hint_recognises_busy_and_permission_errors() {
+        use serialport::{Error, ErrorKind};
+        let busy = Error::new(ErrorKind::Io(std::io::ErrorKind::ResourceBusy), "busy");
+        assert_eq!(open_hint(&busy), Some(BUSY_HINT));
+        let busy_text = Error::new(ErrorKind::Unknown, "Device or resource busy");
+        assert_eq!(open_hint(&busy_text), Some(BUSY_HINT));
+        let denied = Error::new(
+            ErrorKind::Io(std::io::ErrorKind::PermissionDenied),
+            "Permission denied",
+        );
+        assert_eq!(open_hint(&denied), Some(PERMISSION_HINT));
+        let missing = Error::new(ErrorKind::NoDevice, "No such file or directory");
+        assert_eq!(open_hint(&missing), None);
+    }
+
+    #[test]
+    fn port_label_uses_the_basename_with_baud_and_framing() {
+        assert_eq!(
+            port_label("/dev/ttyUSB0", 115_200, "8N1"),
+            "ttyUSB0 115200 8N1"
+        );
+        assert_eq!(port_label("COM3", 9600, "7E1"), "COM3 9600 7E1");
+    }
+
+    #[test]
+    fn port_label_cuts_long_names_from_the_left() {
+        let name = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0";
+        let label = port_label(name, 115_200, "8N1");
+        assert_eq!(label, "...ontroller_0001-if00-port0 115200 8N1");
+        assert!(label.len() <= PORT_LABEL_MAX + " 115200 8N1".len());
+    }
 }

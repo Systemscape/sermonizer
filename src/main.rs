@@ -7,12 +7,15 @@ mod ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 use config::{
-    DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, Toggle, UiConfig,
+    DataBitsArg, FlowControlArg, LineEnding, ParityArg, PortSettings, StopBitsArg, Toggle,
+    UiConfig, open_hint, port_label,
 };
-use crossterm::terminal;
 use logging::LogSink;
 use port_discovery::{choose_port_interactive, get_available_ports, print_ports};
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+};
+use ratatui::crossterm::execute;
 use serial_io::{SerialEvent, WriterMsg, spawn_supervisor, spawn_writer};
 use std::path::PathBuf;
 use std::sync::{
@@ -34,7 +37,7 @@ struct Args {
     #[arg(short = 'b', long, default_value_t = 115_200)]
     baud: u32,
 
-    /// Line ending when you press Enter (none|nl|cr|crlf). Default: nl
+    /// Line ending when you press Enter (none|nl|cr|crlf; lf is an alias for nl). Default: nl
     #[arg(long, value_enum)]
     line_ending: Option<LineEnding>,
 
@@ -70,17 +73,39 @@ struct Args {
     #[arg(long)]
     tx_log: Option<PathBuf>,
 
-    /// Prepend timestamps to logged and displayed lines
-    #[arg(long = "log-ts")]
-    log_ts: bool,
+    /// Prepend timestamps to displayed and logged lines
+    #[arg(short = 't', long, alias = "log-ts")]
+    timestamps: bool,
 
     /// Show RX as hex (space-separated bytes)
     #[arg(long)]
     hex: bool,
 
+    /// Keep ANSI escape sequences in the display instead of stripping them
+    #[arg(long)]
+    raw: bool,
+
+    /// Show what you send in the output, prefixed with "> "
+    #[arg(short = 'e', long)]
+    echo: bool,
+
+    /// Wrap long lines instead of clipping them (toggle at runtime with Ctrl+T)
+    #[arg(short = 'w', long)]
+    wrap: bool,
+
+    /// Scroll the output with the mouse wheel (the terminal then needs
+    /// Shift+drag to select text)
+    #[arg(long)]
+    mouse: bool,
+
     /// Just list ports and exit
     #[arg(long)]
     list: bool,
+
+    /// Also list and offer ports of unknown type, such as onboard UARTs
+    /// (/dev/ttyS*), which are hidden by default
+    #[arg(long)]
+    all_ports: bool,
 }
 
 #[tokio::main]
@@ -88,11 +113,16 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Enumerate ports up front
-    let ports = get_available_ports()?;
+    let ports = get_available_ports(args.all_ports)?;
 
     if args.list {
-        print_ports(&ports);
-        return Ok(());
+        // A pager that exits early closes our stdout; that is not an error
+        return match print_ports(&mut std::io::stdout().lock(), &ports) {
+            Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
+                Err(e).context("Failed to print port list")
+            }
+            _ => Ok(()),
+        };
     }
 
     // Decide on port
@@ -107,11 +137,14 @@ async fn main() -> Result<()> {
     // Decide on baud
     let baud = args.baud;
     println!("Baud: {baud}");
-    println!(
-        "Framing: {}{}{}, flow control: {}",
+    let framing = format!(
+        "{}{}{}",
         args.data_bits.label(),
         args.parity.label(),
-        args.stop_bits.label(),
+        args.stop_bits.label()
+    );
+    println!(
+        "Framing: {framing}, flow control: {}",
         args.flow_control.label()
     );
 
@@ -126,8 +159,14 @@ async fn main() -> Result<()> {
     if args.hex {
         println!("RX view: HEX");
     }
-    if args.log_ts {
-        println!("Timestamps in logs: ON");
+    if args.raw {
+        println!("ANSI escapes: kept");
+    }
+    if args.echo {
+        println!("Local echo: ON");
+    }
+    if args.timestamps {
+        println!("Timestamps: ON");
     }
 
     // Open port
@@ -141,9 +180,10 @@ async fn main() -> Result<()> {
         dtr: args.dtr.map(Toggle::as_bool),
         rts: args.rts.map(Toggle::as_bool),
     };
-    let port = settings
-        .open()
-        .with_context(|| format!("Failed to open serial port '{port_name}'"))?;
+    let port = settings.open().map_err(|e| {
+        let hint = open_hint(&e).map(|h| format!("\n{h}")).unwrap_or_default();
+        anyhow::Error::new(e).context(format!("Failed to open serial port '{port_name}'{hint}"))
+    })?;
 
     println!("Connected. Type to send; press Ctrl-C to exit.\n");
 
@@ -151,12 +191,12 @@ async fn main() -> Result<()> {
     let rx_log = args
         .log
         .as_deref()
-        .map(|p| LogSink::open(p, "RX", args.log_ts, args.hex))
+        .map(|p| LogSink::open(p, "RX", args.timestamps, args.hex))
         .transpose()?;
     let tx_log = args
         .tx_log
         .as_deref()
-        .map(|p| LogSink::open(p, "TX", args.log_ts, false))
+        .map(|p| LogSink::open(p, "TX", args.timestamps, false))
         .transpose()?;
 
     // Handle Ctrl-C with immediate shutdown
@@ -199,27 +239,39 @@ async fn main() -> Result<()> {
         rx_log,
     );
 
-    // Setup terminal for ratatui
-    terminal::enable_raw_mode().context("Failed to enable raw mode")?;
-    let mut stdout = std::io::stdout();
-    crossterm::execute!(stdout, terminal::EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    // Raw mode + alternate screen, with a panic hook that restores both
+    let mut terminal = ratatui::try_init()
+        .inspect_err(|_| {
+            let _ = ratatui::try_restore();
+        })
+        .context("Failed to set up terminal")?;
+    // Best effort: terminals without bracketed paste still deliver pasted
+    // text as key events
+    let _ = execute!(std::io::stdout(), EnableBracketedPaste);
+    if args.mouse {
+        let _ = execute!(std::io::stdout(), EnableMouseCapture);
+    }
 
     let ui_config = UiConfig {
         running: running.clone(),
         line_ending,
         writer: writer_tx.clone(),
         hex: args.hex,
-        show_ts: args.log_ts,
-        port_label: format!("{port_name} @ {baud}"),
+        show_ts: args.timestamps,
+        raw: args.raw,
+        echo: args.echo,
+        wrap: args.wrap,
+        port_label: port_label(&port_name, baud, &framing),
     };
 
     let ui_res = run_ui(&mut terminal, ui_rx, event_rx, ui_config).await;
 
-    // Cleanup terminal
-    terminal::disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), terminal::LeaveAlternateScreen)?;
+    // Restore terminal before anything else can fail
+    if args.mouse {
+        let _ = execute!(std::io::stdout(), DisableMouseCapture);
+    }
+    let _ = execute!(std::io::stdout(), DisableBracketedPaste);
+    ratatui::try_restore().context("Failed to restore terminal")?;
     terminal.show_cursor()?;
 
     // Ensure we stop and join the serial threads
@@ -232,6 +284,6 @@ async fn main() -> Result<()> {
         eprintln!("\nError: {e:?}");
     }
 
-    println!("\nDisconnected. Bye!");
+    println!("\nBye!");
     Ok(())
 }
