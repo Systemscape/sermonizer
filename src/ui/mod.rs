@@ -30,7 +30,10 @@ pub async fn run_ui<B: Backend>(
     mut ui_rx: mpsc::UnboundedReceiver<UiMessage>,
     mut serial_rx: mpsc::UnboundedReceiver<SerialEvent>,
     ui_config: UiConfig,
-) -> Result<()> {
+) -> Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
     let mut app_state = AppState::new(
         ui_config.hex,
         ui_config.show_ts,

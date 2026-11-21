@@ -1,0 +1,4 @@
+[workspace]
+# The GitHub Release is created by dist (.github/workflows/release.yml) when release-plz pushes the tag
+git_release_enable = false
+git_tag_name = "v{{ version }}"
