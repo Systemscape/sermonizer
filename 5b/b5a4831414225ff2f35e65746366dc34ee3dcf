@@ -1,0 +1,36 @@
+src/main.rs
+  s_74c8ba313f87c6::t_153669d0a273e2 290-306,331
+  s_74c8ba313f87c6::t_33ff20700c0675 307-330
+.github/workflows/pr-title.yml
+  s_74c8ba313f87c6::t_cbfbc3da4f5b0b 1-17
+Cargo.toml
+  s_74c8ba313f87c6::t_ce47c61bf32093 25-27
+CONTRIBUTING.md
+  s_74c8ba313f87c6::t_2db00ef90a18a6 1-2,4,6,8,16,18,20,22,24,29,36,38-39,42,44,46-51
+  s_74c8ba313f87c6::t_594dc27feeb643 30
+  s_74c8ba313f87c6::t_78195c57d0e025 34
+  s_74c8ba313f87c6::t_893d62b23e9d00 3
+  s_74c8ba313f87c6::t_5d42ab8f924cd6 5,7,9-15,17,19,21,23,25-28,31-33,35,37,40-41,43,45
+Cargo.lock
+  s_74c8ba313f87c6::t_3ad471dcdfdd37 276-286,490-495,531-536,697-708,1039-1044,1542,1597-1602,1700-1712
+src/snapshots/sermonizer__tests__cli_aliases.snap
+  s_74c8ba313f87c6::t_14292c4925f57f 1-6
+src/snapshots/sermonizer__tests__cli_interface.snap
+  s_74c8ba313f87c6::t_e1adfc663cf4fc 1-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5bb5a4831414225ff2f35e65746366dc34ee3dcf",
+  "prompts": {},
+  "sessions": {
+    "s_74c8ba313f87c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "96e36c2f-3787-445b-bfc9-4552c48b04b4",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
