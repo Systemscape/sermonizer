@@ -22,6 +22,9 @@ tokio = { version = "1.54", features = ["rt-multi-thread", "sync", "macros"] }
 chrono = "0.4"
 unicode-width = "0.2"
 
+[dev-dependencies]
+insta = "1.49"
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"

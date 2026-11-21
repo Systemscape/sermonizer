@@ -1,0 +1,6 @@
+---
+source: src/main.rs
+expression: "aliases.join(\"\\n\")"
+---
+--line-ending nl: lf
+--timestamps: --log-ts

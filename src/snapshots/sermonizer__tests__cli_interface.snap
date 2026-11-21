@@ -1,0 +1,95 @@
+---
+source: src/main.rs
+expression: "Args::command().render_long_help().to_string()"
+---
+A simple, clean serial monitor with a clean terminal UI for embedded development
+
+Usage: sermonizer [OPTIONS]
+
+Options:
+  -p, --port <PORT>
+          Serial port path/name (auto-detect if omitted)
+
+  -b, --baud <BAUD>
+          Baud rate
+          
+          [default: 115200]
+
+      --line-ending <LINE_ENDING>
+          Line ending when you press Enter (none|nl|cr|crlf; lf is an alias for nl). Default: nl
+
+          Possible values:
+          - none: Send nothing extra (no line ending)
+          - nl:   Send '\n' (LF)
+          - cr:   Send '\r' (CR)
+          - crlf: Send "\r\n" (CRLF)
+
+      --data-bits <DATA_BITS>
+          Data bits per character
+          
+          [default: 8]
+          [possible values: 5, 6, 7, 8]
+
+      --parity <PARITY>
+          Parity checking mode
+          
+          [default: none]
+          [possible values: none, odd, even]
+
+      --stop-bits <STOP_BITS>
+          Stop bits
+          
+          [default: 1]
+          [possible values: 1, 2]
+
+      --flow-control <FLOW_CONTROL>
+          Flow control mode
+          
+          [default: none]
+          [possible values: none, software, hardware]
+
+      --dtr <DTR>
+          Set the DTR line after opening (left untouched if omitted)
+          
+          [possible values: on, off]
+
+      --rts <RTS>
+          Set the RTS line after opening (left untouched if omitted)
+          
+          [possible values: on, off]
+
+      --log <LOG>
+          Log received bytes to this file (appends)
+
+      --tx-log <TX_LOG>
+          Log transmitted bytes to this file (appends)
+
+  -t, --timestamps
+          Prepend timestamps to displayed and logged lines
+
+      --hex
+          Show RX as hex (space-separated bytes)
+
+      --raw
+          Keep ANSI escape sequences in the display instead of stripping them
+
+  -e, --echo
+          Show what you send in the output, prefixed with "> "
+
+  -w, --wrap
+          Wrap long lines instead of clipping them (toggle at runtime with Ctrl+T)
+
+      --mouse
+          Scroll the output with the mouse wheel (the terminal then needs Shift+drag to select text)
+
+      --list
+          Just list ports and exit
+
+      --all-ports
+          Also list and offer ports of unknown type, such as onboard UARTs (/dev/ttyS*), which are hidden by default
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

@@ -287,3 +287,45 @@ async fn main() -> Result<()> {
     println!("\nBye!");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_definition_is_valid() {
+        Args::command().debug_assert();
+    }
+
+    // The help text is the CLI contract: a snapshot diff here means flags,
+    // defaults or values changed, which is a breaking change (see CONTRIBUTING.md)
+    #[test]
+    fn cli_interface() {
+        insta::assert_snapshot!(Args::command().render_long_help().to_string());
+    }
+
+    // Hidden aliases are not part of the help text but are still user input
+    #[test]
+    fn cli_aliases() {
+        let command = Args::command();
+        let mut aliases: Vec<String> = Vec::new();
+        for arg in command.get_arguments() {
+            let Some(long) = arg.get_long() else {
+                continue;
+            };
+            if let Some(flag_aliases) = arg.get_all_aliases() {
+                aliases.push(format!("--{long}: --{}", flag_aliases.join(", --")));
+            }
+            for value in arg.get_possible_values() {
+                let names: Vec<&str> = value.get_name_and_aliases().collect();
+                if let [name, value_aliases @ ..] = names.as_slice()
+                    && !value_aliases.is_empty()
+                {
+                    aliases.push(format!("--{long} {name}: {}", value_aliases.join(", ")));
+                }
+            }
+        }
+        insta::assert_snapshot!(aliases.join("\n"));
+    }
+}
