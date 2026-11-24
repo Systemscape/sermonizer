@@ -1,0 +1,21 @@
+.github/workflows/release.yml
+  s_e7ba3496dcf0a7::t_49179519d2524b 67
+dist-workspace.toml
+  s_e7ba3496dcf0a7::t_49179519d2524b 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1a02da9a5d27d731346a2300187220ba3b2e73a0",
+  "prompts": {},
+  "sessions": {
+    "s_e7ba3496dcf0a7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d88bd9cd-0780-4ec8-9a0d-03767ae00339",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Joël Schulz-Andres <joel@systemscape.de>"
+    }
+  }
+}
